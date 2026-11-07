@@ -1,0 +1,98 @@
+/* Long-form text (usage guide). Generous line length and spacing; tables as hairlines. */
+.prose {
+  color: var(--c-fg);
+  font-size: 15px;
+  line-height: 1.85;
+}
+.prose h1 {
+  margin-bottom: var(--sp-4);
+  font-size: 28px;
+  font-weight: 650;
+}
+.prose h2 {
+  margin: var(--sp-7) 0 var(--sp-3);
+  padding-top: var(--sp-2);
+  font-size: 20px;
+  font-weight: 600;
+  scroll-margin-top: calc(var(--header-h) + var(--sp-4));
+}
+.prose h3 {
+  margin: var(--sp-6) 0 var(--sp-2);
+  font-size: 16px;
+  font-weight: 600;
+  scroll-margin-top: calc(var(--header-h) + var(--sp-4));
+}
+.prose p,
+.prose ul,
+.prose ol,
+.prose table,
+.prose pre,
+.prose blockquote {
+  margin: 0 0 var(--sp-4);
+}
+.prose ul,
+.prose ol {
+  padding-left: 1.4em;
+}
+.prose li + li {
+  margin-top: 4px;
+}
+.prose strong {
+  font-weight: 600;
+}
+.prose a {
+  color: var(--c-fg);
+  text-decoration-color: var(--c-line-strong);
+}
+.prose a:hover {
+  text-decoration-color: currentColor;
+}
+.prose code {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--c-fill);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+.prose pre {
+  padding: var(--sp-3) var(--sp-4);
+  overflow-x: auto;
+  border-radius: var(--radius);
+  background: var(--c-fill);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.prose pre code {
+  padding: 0;
+  background: none;
+}
+.prose blockquote {
+  padding: var(--sp-2) var(--sp-4);
+  border-left: 2px solid var(--c-line-strong);
+  color: var(--c-fg-muted);
+}
+.prose blockquote p {
+  margin: 0;
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.prose th,
+.prose td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--c-line);
+  text-align: left;
+  vertical-align: top;
+}
+.prose td:first-child {
+  white-space: nowrap;
+}
+.prose th {
+  border-bottom-color: var(--c-line-strong);
+  color: var(--c-fg-muted);
+  font-weight: 500;
+  white-space: nowrap;
+}

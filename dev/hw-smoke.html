@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>m-web hardware smoke</title>
+    <style>
+      body { font: 13px/1.5 ui-monospace, Menlo, monospace; margin: 24px; }
+      button { font: inherit; padding: 6px 12px; margin-right: 8px; }
+      pre { white-space: pre-wrap; border-top: 1px solid #ddd; padding-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <p>Dev-only page (not part of the production build). Read-only commands only.</p>
+    <button id="add">Add M-Logger &amp; test</button>
+    <button id="concurrent">Concurrent hello</button>
+    <button id="close">Disconnect all</button>
+    <button id="scanall">Scan all devices</button>
+    <button id="scansvc">Scan by XBee service</button>
+    <pre id="log"></pre>
+    <script type="module" src="/src/dev/hw-smoke.ts"></script>
+  </body>
+</html>
