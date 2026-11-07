@@ -1,6 +1,7 @@
 # m-web
 
-Web Bluetooth dashboard for **M-Logger** indoor-climate loggers ([et0614/mlogger](https://github.com/et0614/mlogger), firmware v4).
+Web Bluetooth dashboard for **M-Logger** indoor-climate loggers ([et0614/mlogger](https://github.com/et0614/mlogger)),
+version 4 and later (units with a USB Type-C port; v3 and earlier are not supported).
 One PC (Chrome / Edge) connects to several loggers at once: live values and charts, MRT / PMV / PPD,
 recording to the browser with CSV export, flash-memory download, and logger settings. Japanese / English UI.
 
@@ -14,7 +15,9 @@ A static site — no server, no installation. All data stays in the browser (Ind
 - Recording to IndexedDB (crash-safe, resumable), CSV / ZIP export in a Web Worker
 - Flash download with block retry and resume; CSV with the same columns
 - Measurement intervals, start time, correction factors, CO₂ calibration, rename, erase
-- Automatic reconnection; recording restarts logging after a dropped link
+- Automatic reconnection; recording restarts logging after a dropped link. A logger the browser has lost
+  track of (Chrome on macOS forgets devices it has not heard for ~3 min) comes back with one
+  “Find and reconnect” click, or by itself with `chrome://flags/#enable-experimental-web-platform-features`
 - Demo loggers (simulated) to try the UI without hardware
 - Usage guide (`#/guide`), dark mode, keeps the screen on while recording
 
@@ -48,7 +51,8 @@ docs/hw-notes.md   measurements on real loggers
 
 These run against `npm run dev` in a separate Chrome instance (temporary profile) started through
 LaunchServices, so Chrome holds the macOS Bluetooth permission. The Web Bluetooth chooser is answered
-through the DevTools protocol.
+through the DevTools protocol. Quit any other Chrome first: macOS delivers no BLE advertisements to a
+second Chrome instance (see `docs/hw-notes.md`).
 
 | Script | What it does | Changes the loggers? |
 |---|---|---|
@@ -57,6 +61,7 @@ through the DevTools protocol.
 | `node scripts/hw-e2e.mjs` | UI: add 3 loggers, live view, forced link drop, reconnect | temporary logging (no flash writes) |
 | `node scripts/hw-e2e-recording.mjs` | UI: BLE-only recording with a link drop, ZIP export | temporary logging (no flash writes) |
 | `node scripts/hw-e2e-dump.mjs` | UI: flash download through the device drawer | no (read-only) |
+| `node scripts/hw-e2e-lost.mjs [manual\|auto]` | UI: link drop after 200 s, “Find and reconnect” (or automatic with the experimental flag) | temporary logging (no flash writes) |
 | `node scripts/e2e-demo-recording.mjs` | demo loggers: record → stop → ZIP | — |
 | `node scripts/e2e-demo-drawer.mjs` | demo loggers: drawer actions | — |
 | `node scripts/perf-demo.mjs` | 8 demo loggers × 24 h × 1 Hz: long tasks / frame times | — |

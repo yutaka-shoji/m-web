@@ -18,10 +18,10 @@ const confirmOpen = ref(false);
 const stopDevices = ref(true);
 
 const pad = (n: number) => String(n).padStart(2, '0');
+// ASCII only (letters, digits, '-', '_') in every language: it also names the exported files.
 const defaultTitle = computed(() => {
   const d = new Date(now.value);
-  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return t('recording.titlePlaceholder', { date });
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
 });
 const online = computed(() => devices.entries.filter((e) => e.state.value.conn.state === 'online').length);
 const members = computed(() => rec.active?.devices.filter((d) => d.leftAt === null).length ?? 0);

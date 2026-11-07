@@ -75,3 +75,31 @@ cached GAP name **"XBee3 Zigbee"** instead of the advertised `MLogger_xxxx`, so 
 A Node process started from the Claude Code shell is killed by macOS TCC as soon as it touches
 CoreBluetooth (`NSBluetoothAlwaysUsageDescription` missing in the responsible process). Chrome
 launched through LaunchServices is its own responsible process, so hardware tests run in Chrome.
+
+## 2026-11-08 — reconnecting after a long connection (Chrome on macOS)
+
+Reported: after “Simulate link loss” on a real logger, the card stayed “reconnecting” forever.
+The earlier check (`hw-e2e.mjs`) had dropped the link ~15 s after connecting and passed.
+
+- bluetoothd logs (`log show --predicate 'process == "bluetoothd"'`) showed no “App connecting” for
+  the dropped logger after the drop: the retries never reached the OS.
+- Cause: Chrome's macOS adapter removes a device that is neither connected nor seen advertising
+  within ~3 minutes (polled every 0.5 s). A link that drops after being up longer than that leaves
+  the device out of Chrome's cache at once, and every `gatt.connect()` rejects immediately with
+  `NetworkError: Bluetooth Device is no longer in range.` Only a scan brings it back.
+- Fix: `DeviceNotInRangeError` → `conn.notInRange` (“Not found”). “Find and reconnect” opens the
+  device chooser; its scan refreshes Chrome's cache, and every lost logger is retried right after.
+  With `--enable-experimental-web-platform-features`, `watchAdvertisements()` exists and the app
+  reconnects by itself on the first advertisement. A hello timeout on a logger that answered before
+  is now treated as a link problem (it used to be reported as v3 firmware).
+- `node scripts/hw-e2e-lost.mjs` (live view, 200 s, then drop):
+  - manual, 1 logger: flagged within ~1 s (error text as above); online 5 s after picking it again.
+  - manual, 3 loggers, 2 dropped: one pick in the chooser brought both back within 6 s.
+  - auto (flag on), 1 logger: online 8 s after the drop, no user action.
+
+### Test environment: one Chrome at a time
+
+With the user's own Chrome running, a second Chrome instance (the test profile) received no BLE
+advertisements at all: bluetoothd ran its scan with `FG:0` (background) and logged
+“Error getting Application State for com.google.Chrome”. Scans that worked earlier had `FG:1`.
+Quit other Chrome instances before running the hardware scripts.

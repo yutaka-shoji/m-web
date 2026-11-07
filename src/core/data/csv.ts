@@ -1,6 +1,6 @@
 /**
  * CSV layout (one header row, English column names with units; datetime = device timestamp in
- * the PC's local time; empty cell = not measured; UTF-8 with BOM; CRLF).
+ * the PC's local time with its UTC offset; empty cell = not measured; UTF-8 with BOM; CRLF).
  */
 export const CSV_COLUMNS = [
   'datetime',
@@ -50,10 +50,19 @@ export function csvHeader(opts: { voltage: boolean; long: boolean }): string {
 
 const pad2 = (n: number) => (n < 10 ? '0' : '') + n;
 
-/** "YYYY-MM-DD HH:mm:ss" in the runtime's local time zone. */
+/**
+ * "YYYY-MM-DD HH:mm:ss+09:00": local time of the runtime's time zone followed by its UTC offset at
+ * that instant (RFC 3339 with a space separator), so rows stay unambiguous across DST changes.
+ */
 export function localDateTime(tsSec: number): string {
   const d = new Date(tsSec * 1000);
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  const east = -d.getTimezoneOffset(); // minutes east of UTC
+  const a = Math.abs(east);
+  return (
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}` +
+    `${east < 0 ? '-' : '+'}${pad2(Math.floor(a / 60))}:${pad2(a % 60)}`
+  );
 }
 
 function num(v: number | null, digits: number): string {

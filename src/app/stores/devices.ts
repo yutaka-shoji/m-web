@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, markRaw, ref, shallowRef, watch, type ShallowRef } from 'vue';
 import { MLOGGER_SCAN_FILTERS, XBEE_SERVICE_UUID } from '../../core/ble/constants';
-import { WebBluetoothTransport } from '../../core/ble/web-bluetooth';
+import { canWatchAdvertisements, WebBluetoothTransport, waitForAdvertisement } from '../../core/ble/web-bluetooth';
 import { openXBeeLink } from '../../core/ble/xbee-link';
 import { attachComfort, recomputeComfort } from '../../core/comfort/engine';
 import { DeviceController, type DeviceState } from '../../core/device/controller';
@@ -49,6 +49,14 @@ export const useDevicesStore = defineStore('devices', () => {
   const entries = shallowRef<readonly DeviceEntry[]>([]);
   const supported = typeof navigator !== 'undefined' && 'bluetooth' in navigator;
   const bluetoothAvailable = ref<boolean | null>(null);
+  /**
+   * The browser reports advertisements of known devices (Chrome: experimental flag), so a logger it
+   * lost track of reconnects by itself; otherwise the user has to open the chooser once.
+   */
+  const autoFind =
+    supported &&
+    typeof (globalThis as { BluetoothDevice?: { prototype: Partial<BluetoothDevice> } }).BluetoothDevice?.prototype
+      .watchAdvertisements === 'function';
 
   async function checkAvailability(): Promise<void> {
     if (!supported) return;
@@ -114,6 +122,7 @@ export const useDevicesStore = defineStore('devices', () => {
         await transport.open(signal);
         return openXBeeLink(transport);
       },
+      ...(canWatchAdvertisements(device) ? { waitForPresence: (signal: AbortSignal) => waitForAdvertisement(device, signal) } : {}),
     });
     // Development builds only: drop the GATT link as if the logger went out of range.
     const entry = register(controller, import.meta.env.DEV ? () => device.gatt?.disconnect() : undefined);
@@ -146,6 +155,19 @@ export const useDevicesStore = defineStore('devices', () => {
       throw err;
     }
     return adopt(device);
+  }
+
+  /**
+   * Loggers the browser lost track of (conn.notInRange) can reconnect only after a scan has seen
+   * them again. The device chooser runs that scan: whatever the user picks — or if they cancel —
+   * every such logger is retried right away. Call from a user gesture (button click).
+   */
+  async function findLostDevices(): Promise<DeviceEntry | null> {
+    try {
+      return await addBluetoothDevice();
+    } finally {
+      for (const e of entries.value) if (!e.controller.demo && e.state.value.conn.notInRange) e.controller.retryNow();
+    }
   }
 
   /** Devices this origin may still use and that were connected before (getDevices: Chrome flag). */
@@ -211,6 +233,14 @@ export const useDevicesStore = defineStore('devices', () => {
   );
 
   const connectedCount = computed(() => entries.value.filter((e) => e.state.value.conn.state === 'online').length);
+  /** Loggers waiting for a scan before they can reconnect. */
+  const lostCount = computed(
+    () =>
+      entries.value.filter((e) => {
+        const c = e.state.value.conn;
+        return c.notInRange && (c.state === 'reconnecting' || c.state === 'connecting' || c.state === 'failed');
+      }).length,
+  );
   /** True while any device is connected or trying to be (used by the unload guard). */
   const anyActive = computed(() => entries.value.some((e) => ACTIVE.has(e.state.value.conn.state)));
 
@@ -220,6 +250,9 @@ export const useDevicesStore = defineStore('devices', () => {
     bluetoothAvailable,
     checkAvailability,
     addBluetoothDevice,
+    findLostDevices,
+    autoFind,
+    lostCount,
     restorable,
     findRestorable,
     reconnectRestorable,

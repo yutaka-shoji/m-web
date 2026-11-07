@@ -1,10 +1,12 @@
 import { XBEE_REQUEST_CHAR_UUID, XBEE_RESPONSE_CHAR_UUID, XBEE_SERVICE_UUID } from './constants';
-import type { ByteTransport, CloseReason } from './transport';
+import { DeviceNotInRangeError, type ByteTransport, type CloseReason } from './transport';
 import { Listeners, type Unsubscribe } from '../util/emitter';
 
 export interface WebBluetoothTransportOptions {
   /** `gatt.connect()` never times out on macOS, so we impose one. */
   connectTimeoutMs?: number;
+  /** Service discovery + enabling indications (can stall on a half-open link). */
+  discoveryTimeoutMs?: number;
   /** Pause after enabling indications before the first write. */
   settleMs?: number;
 }
@@ -22,7 +24,7 @@ export class WebBluetoothTransport implements ByteTransport {
 
   constructor(device: BluetoothDevice, opts: WebBluetoothTransportOptions = {}) {
     this.device = device;
-    this.opts = { connectTimeoutMs: 15_000, settleMs: 150, ...opts };
+    this.opts = { connectTimeoutMs: 15_000, discoveryTimeoutMs: 10_000, settleMs: 150, ...opts };
   }
 
   get id(): string {
@@ -42,12 +44,14 @@ export class WebBluetoothTransport implements ByteTransport {
     if (!gatt) throw new Error('device has no GATT server');
     this.device.addEventListener('gattserverdisconnected', this.onDisconnected);
     try {
-      const server = await withTimeout(gatt.connect(), this.opts.connectTimeoutMs, signal, () => gatt.disconnect());
-      const service = await server.getPrimaryService(XBEE_SERVICE_UUID);
-      this.req = await service.getCharacteristic(XBEE_REQUEST_CHAR_UUID);
-      this.resp = await service.getCharacteristic(XBEE_RESPONSE_CHAR_UUID);
-      this.resp.addEventListener('characteristicvaluechanged', this.onValue);
-      await this.resp.startNotifications();
+      let server: BluetoothRemoteGATTServer;
+      try {
+        server = await withTimeout(gatt.connect(), this.opts.connectTimeoutMs, signal, () => gatt.disconnect());
+      } catch (err) {
+        if (isNotInRange(err)) throw new DeviceNotInRangeError(err.message, { cause: err });
+        throw err;
+      }
+      await withTimeout(this.discover(server), this.opts.discoveryTimeoutMs, signal, () => gatt.disconnect());
       if (this.opts.settleMs > 0) await new Promise((r) => setTimeout(r, this.opts.settleMs));
       if (signal?.aborted) throw signal.reason ?? new Error('aborted');
       this.opened = true;
@@ -56,6 +60,14 @@ export class WebBluetoothTransport implements ByteTransport {
       if (gatt.connected) gatt.disconnect();
       throw err;
     }
+  }
+
+  private async discover(server: BluetoothRemoteGATTServer): Promise<void> {
+    const service = await server.getPrimaryService(XBEE_SERVICE_UUID);
+    this.req = await service.getCharacteristic(XBEE_REQUEST_CHAR_UUID);
+    this.resp = await service.getCharacteristic(XBEE_RESPONSE_CHAR_UUID);
+    this.resp.addEventListener('characteristicvaluechanged', this.onValue);
+    await this.resp.startNotifications();
   }
 
   async write(chunk: Uint8Array): Promise<void> {
@@ -101,6 +113,47 @@ export class WebBluetoothTransport implements ByteTransport {
     this.device.removeEventListener('gattserverdisconnected', this.onDisconnected);
     this.resp?.removeEventListener('characteristicvaluechanged', this.onValue);
   }
+}
+
+/** Chrome's rejection when the device is missing from its device cache (DEVICE_NO_LONGER_IN_RANGE). */
+function isNotInRange(err: unknown): err is DOMException {
+  return err instanceof DOMException && err.name === 'NetworkError' && /no longer in range/i.test(err.message);
+}
+
+/**
+ * True when the browser can report advertisements of an already permitted device. Chrome exposes
+ * `watchAdvertisements()` only with chrome://flags/#enable-experimental-web-platform-features.
+ */
+export function canWatchAdvertisements(device: BluetoothDevice): boolean {
+  return typeof (device as Partial<Pick<BluetoothDevice, 'watchAdvertisements'>>).watchAdvertisements === 'function';
+}
+
+/**
+ * Resolves on the next advertisement from `device`. The scan behind it also puts the device back
+ * into Chrome's device cache, so `gatt.connect()` finds it again. Rejects when `signal` aborts or
+ * the browser refuses to watch (e.g. the page is hidden).
+ */
+export function waitForAdvertisement(device: BluetoothDevice, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (!canWatchAdvertisements(device)) return reject(new Error('watchAdvertisements is not available'));
+    if (signal.aborted) return reject(signal.reason ?? new Error('aborted'));
+    const watch = new AbortController();
+    let done = false;
+    const finish = (err?: unknown) => {
+      if (done) return;
+      done = true;
+      device.removeEventListener('advertisementreceived', onAdvertisement);
+      signal.removeEventListener('abort', onAbort);
+      watch.abort(); // stop scanning for it
+      if (err === undefined) resolve();
+      else reject(err);
+    };
+    const onAdvertisement = () => finish();
+    const onAbort = () => finish(signal.reason ?? new Error('aborted'));
+    device.addEventListener('advertisementreceived', onAdvertisement);
+    signal.addEventListener('abort', onAbort, { once: true });
+    device.watchAdvertisements({ signal: watch.signal }).catch((e: unknown) => finish(e));
+  });
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number, signal: AbortSignal | undefined, onTimeout: () => void): Promise<T> {

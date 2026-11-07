@@ -71,7 +71,7 @@ try {
   ok('settings sent (velocity 30 s)');
 
   // flash download (demo: 2880 records)
-  await clickText('.panel .sec:nth-of-type(3)', '吸い出す');
+  await clickText('.panel .sec:nth-of-type(3)', '読み出す');
   await page.waitForFunction(() => window.__mwebDevices.entries[0].state.value.op === 'dump', { timeout: 10000 });
   await sleep(3000);
   await page.screenshot({ path: join(outDir, 'drawer-2-download.png') });

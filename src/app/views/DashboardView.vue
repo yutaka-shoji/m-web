@@ -37,6 +37,18 @@ async function add() {
   }
 }
 
+async function findLost() {
+  adding.value = true;
+  addError.value = null;
+  try {
+    await store.findLostDevices();
+  } catch (e) {
+    addError.value = t('error.addFailed', { message: e instanceof Error ? e.message : String(e) });
+  } finally {
+    adding.value = false;
+  }
+}
+
 async function liveAll() {
   await Promise.allSettled(onlineIdle.value.map((e) => e.controller.startLive()));
 }
@@ -86,6 +98,20 @@ async function stopAll() {
       <AppBanner v-else-if="store.bluetoothAvailable === false" tone="warn">{{ t('banner.bluetoothOff') }}</AppBanner>
       <AppBanner v-if="app.tabRole === 'secondary'" tone="warn">{{ t('banner.otherTab') }}</AppBanner>
       <AppBanner v-if="addError" tone="warn">{{ addError }}</AppBanner>
+      <AppBanner v-if="store.lostCount" :tone="store.autoFind ? 'info' : 'warn'">
+        {{ t(store.autoFind ? 'banner.lostAuto' : 'banner.lost', { n: store.lostCount }) }}
+        <span class="banner-actions">
+          <button
+            class="btn btn--small"
+            :class="{ 'btn--primary': !store.autoFind }"
+            data-testid="find-lost"
+            :disabled="adding || app.tabRole === 'secondary'"
+            @click="findLost"
+          >
+            {{ t('device.actions.find') }}
+          </button>
+        </span>
+      </AppBanner>
       <AppBanner v-if="store.restorable.length">
         {{ t('restore.available', { n: store.restorable.length }) }}
         <span class="banner-actions">

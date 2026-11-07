@@ -71,12 +71,12 @@ describe('Recorder + CSV export', () => {
     const mrt = meanRadiantTemperature(23.45, 24.1, 0.12);
     const { pmv, ppd } = pmvPpd({ ta: 23.45, tr: mrt, vr: 0.12, rh: 55.2, met: 1.1, clo: 1.0 });
     expect(lines[1]).toBe(
-      `2026-11-07 18:00:00,${t0},23.45,55.2,24.10,0.120,420,425,${mrt.toFixed(2)},${pmv.toFixed(3)},${ppd.toFixed(1)},2350`,
+      `2026-11-07 18:00:00+09:00,${t0},23.45,55.2,24.10,0.120,420,425,${mrt.toFixed(2)},${pmv.toFixed(3)},${ppd.toFixed(1)},2350`,
     );
     // illuminance-only sample: derived values carried forward from the previous state
-    expect(lines[2]).toBe(`2026-11-07 18:00:05,${t0 + 5},,,,,421,,${mrt.toFixed(2)},${pmv.toFixed(3)},${ppd.toFixed(1)},`);
+    expect(lines[2]).toBe(`2026-11-07 18:00:05+09:00,${t0 + 5},,,,,421,,${mrt.toFixed(2)},${pmv.toFixed(3)},${ppd.toFixed(1)},`);
     // TH probe warming up: globe value present, derived indices withheld (official app rule)
-    expect(lines[3]).toBe(`2026-11-07 18:00:10,${t0 + 10},,,24.20,,,,,,,`);
+    expect(lines[3]).toBe(`2026-11-07 18:00:10+09:00,${t0 + 10},,,24.20,,,,,,,`);
     expect(file!.name).toBe('会議室A_計測_MLogger_0001_3DF27622.csv');
   });
 

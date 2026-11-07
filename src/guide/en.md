@@ -16,8 +16,11 @@ m-web connects a PC browser to **M-Logger** indoor-climate loggers over Bluetoot
 |---|---|
 | Browser | Desktop **Google Chrome** or **Microsoft Edge** (current). Safari, Firefox and phones are not supported |
 | PC | Windows, macOS or ChromeOS with Bluetooth Low Energy |
-| M-Logger | Firmware **v4** (v3 units are not supported; update them as described on the official site) |
+| Loggers at once | Depends on the PC's Bluetooth adapter; about 5–7 as a rule of thumb (see “Connecting loggers” below) |
+| M-Logger | **v4 or later** (units with a USB Type-C port). v3 and earlier units are not supported |
 | Page | Served over HTTPS (or localhost during development) |
+
+Version 4 of the M-Logger brought substantially new hardware and firmware updates through the USB port. This app uses the v4 protocol, so v3 and earlier units cannot be used for now.
 
 On macOS you may be asked whether Google Chrome may use Bluetooth the first time. Choose **Allow** (change it later in System Settings > Privacy & Security > Bluetooth).
 
@@ -36,9 +39,21 @@ The clock is set automatically when connecting (the clock of a logger that is al
 3. After the unlock (about 1.5 s) and reading the settings, the card shows the logger name and battery voltage.
 4. Repeat for more loggers. Connected loggers are not listed again.
 
+How many loggers can be connected at the same time is set by the PC's Bluetooth adapter (with its driver and the OS), and the limit is rarely published. For a typical PC, **5–7 loggers** is a reasonable rule of thumb. Mice, keyboards, headphones and other Bluetooth devices use the same connection slots. If adding loggers leads to failed or frequently dropped connections, connect fewer or split them across PCs (tested: 3 loggers on a macOS PC with Apple silicon).
+
 The chooser may show units as “MLogger_xxxx” or as **“XBee3 Zigbee”** (macOS remembers the radio module's own name after a first connection). Pick any of them — the real logger name appears on the card after connecting.
 
 If a connection drops, the app keeps reconnecting (until it succeeds while recording or downloading, otherwise for up to 10 minutes).
+
+### When a card says “Not found”
+
+When a link drops after it has been up for more than a few minutes, the browser may lose track of the logger. Chrome on macOS in particular forgets devices it has not heard for about three minutes, so automatic reconnection cannot bring them back. The card then shows **Not found**.
+
+1. Check that the logger is on and close enough to the PC.
+2. Press **Find and reconnect** on the card or at the top of the dashboard.
+3. Pick the logger when it appears in the chooser. The chooser's scan also brings back any other loggers that were lost.
+
+> With `chrome://flags/#enable-experimental-web-platform-features` (Experimental Web Platform features) enabled in Chrome, lost loggers reconnect automatically as soon as their signal is received. It is an experimental feature and off by default.
 
 > Without hardware at hand, **Try demo loggers** lets you explore the app with simulated data.
 
@@ -69,13 +84,13 @@ Below the cards, each quantity has a chart with all loggers overlaid. Switch the
 
 ## Recording
 
-1. In the recording bar at the top of the dashboard, optionally enter a **name** (the date is used otherwise).
+1. In the recording bar at the top of the dashboard, optionally enter a **name**. If left empty, the start time is used, such as `2026-11-07_1830` (it also names the exported files).
 2. Check **Also save on the logger’s flash (recommended)**.
 3. Press **Start recording**. Every connected logger starts measuring and the values are saved in this browser.
 4. Press **Stop** to finish. Choosing “Also stop logging on the devices” saves battery.
 
 - Loggers connected during a recording join it automatically.
-- With **save on flash**, the logger keeps logging if the PC link drops, and saving on the PC resumes after reconnecting; a later download of the device memory fills any gaps. Keeping Bluetooth output on drains the battery faster — use USB power for multi-day measurements.
+- With **save on flash**, the logger keeps logging if the PC link drops, and saving on the PC resumes after reconnecting (a logger shown as “Not found” is not saved on the PC until you bring it back with Find and reconnect); a later download of the device memory fills any gaps. Keeping Bluetooth output on drains the battery faster — use USB power for multi-day measurements.
 - **Without** saving on flash, the logger stops measuring when the link drops (firmware behaviour); the app restarts it after reconnecting.
 - Closing or reloading the page drops every connection; you are asked to confirm while recording. After a reload the app reports the interrupted recording, and **Continue recording** appends to it.
 
@@ -91,7 +106,7 @@ The **Data** page lists all recordings.
 
 | Column | Content | Unit |
 |---|---|---|
-| `datetime` | Measurement time (the logger's timestamp in the PC's time zone) | — |
+| `datetime` | Measurement time: the logger's timestamp in the PC's time zone, followed by the offset from UTC (e.g. `2026-11-07 18:00:00+09:00`) | — |
 | `unix_time` | The same time as Unix seconds (UTC) | s |
 | `t_dry[C]` | Air temperature | °C |
 | `rh[%]` | Relative humidity | % |
@@ -106,12 +121,7 @@ The **Data** page lists all recordings.
 
 - An empty cell means “not measured at this time” (quantities have different intervals).
 - Values keep the precision sent by the logger.
-- Files are UTF-8 with BOM, so Excel shows Japanese names correctly. In Python:
-
-```python
-import pandas as pd
-df = pd.read_csv("data.csv", encoding="utf-8-sig", parse_dates=["datetime"])
-```
+- Files are UTF-8 with BOM, so Excel shows Japanese names correctly.
 
 ## Downloading the device memory
 
@@ -137,6 +147,7 @@ The **Details** panel offers the following. Changes take effect once sent to the
 
 - **Keep the PC awake**: sleep drops the Bluetooth connections. Disable sleep in the power settings (keep a laptop lid open).
 - **Keep the window visible**: while recording or downloading, the app keeps the screen on (when visible). Receiving and saving continue in a background tab, but do not close the tab or let the browser discard it.
+- **Plan for dropouts**: choose “save on flash” for long unattended measurements. Even if a logger stays “Not found” after a dropout, it keeps logging, and a later download of the device memory fills the gap.
 - **Battery**: recording on the PC while also saving on flash keeps Bluetooth busy and drains the battery faster. Battery voltage is shown on the card and in Details, and turns vermilion when low. Use USB power for measurements of several days.
 - **Browser storage**: the Data page shows how much is used. Save recordings as CSV and delete the ones you no longer need.
 
@@ -146,8 +157,9 @@ The **Details** panel offers the following. Changes take effect once sent to the
 |---|---|
 | The logger is not listed | Power and blinking LED, within 10 m, not connected to a phone or another PC (connected loggers are not listed), Bluetooth on |
 | Only “XBee3 Zigbee” is listed | Normal — pick it; the real name appears after connecting |
+| A card says “Not found” | The browser lost track of the logger. Check power and distance, press Find and reconnect and pick the logger in the chooser |
 | Cannot connect / unlock fails | Power-cycle the logger and add it again. On Windows, toggling Bluetooth off and on may help |
-| “Old firmware” | A v3 unit; update the firmware to v4 as described on the official site |
+| “Not supported (v3 or earlier)” | A v3 or earlier unit. The app supports v4 and later only (units with a USB Type-C port) |
 | Values stay “—” | Warming up just after the start, or the quantity is switched off (Details → Measurement settings) |
 | MRT/PMV show “—” | Not computable without air speed; set an assumed air speed in Settings |
 | Frequent disconnects | Move closer and reduce obstacles; fewer simultaneous loggers can help |

@@ -46,12 +46,12 @@ try {
   const count = await page.evaluate(async () => (await window.__mwebDevices.entries[0].controller.call('get_count', undefined)).count);
   const t0 = Date.now();
   await page.waitForFunction(
-    () => [...document.querySelectorAll('.panel .sec:nth-of-type(3) button')].some((b) => b.textContent.trim() === '吸い出す' || b.textContent.trim() === 'Download'),
+    () => [...document.querySelectorAll('.panel .sec:nth-of-type(3) button')].some((b) => b.textContent.trim() === '読み出す' || b.textContent.trim() === 'Download'),
     { timeout: 15000 },
   );
   await page.evaluate(() =>
     [...document.querySelectorAll('.panel .sec:nth-of-type(3) button')]
-      .find((b) => b.textContent.trim() === '吸い出す' || b.textContent.trim() === 'Download')
+      .find((b) => b.textContent.trim() === '読み出す' || b.textContent.trim() === 'Download')
       .click(),
   );
   await page.waitForFunction(() => window.__mwebDevices.entries[0].state.value.op === 'dump', { timeout: 10000 });

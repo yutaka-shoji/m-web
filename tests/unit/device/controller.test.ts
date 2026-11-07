@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { DeviceNotInRangeError } from '../../../src/core/ble/transport';
 import { DeviceController, type DeviceState } from '../../../src/core/device/controller';
 import { Mutex } from '../../../src/core/util/emitter';
 import { FakeFirmwareLink } from '../../helpers/fake-firmware';
@@ -120,6 +121,106 @@ describe('DeviceController', () => {
     const cmds = fw.accepted.map((l) => JSON.parse(l).command);
     expect(cmds.slice(-3)).toEqual(['start_logging', 'set_time', 'start_logging']);
     expect(ctrl.snapshot.logging).toBe(true);
+  });
+
+  describe('a device the browser lost track of (DeviceNotInRangeError)', () => {
+    /** Connects once, then the browser "forgets" the device until `visible` is set again. */
+    function makeLost(opts: { waitForPresence?: (signal: AbortSignal) => Promise<void>; reconnectGiveUpMs?: number } = {}) {
+      let visible = true;
+      let attempts = 0;
+      const links: FakeFirmwareLink[] = [];
+      const ctrl = new DeviceController({
+        key: 'lost1',
+        gate: new Mutex(),
+        clientOptions: { gapMs: 1, timeoutCooldownMs: 5 },
+        helloTimeoutMs: 100,
+        ...opts,
+        openLink: async () => {
+          attempts += 1;
+          if (!visible) throw new DeviceNotInRangeError('Bluetooth Device is no longer in range.');
+          const fw = new FakeFirmwareLink();
+          links.push(fw);
+          return fw;
+        },
+      });
+      ctrls.push(ctrl);
+      return { ctrl, links, attempts: () => attempts, setVisible: (v: boolean) => (visible = v) };
+    }
+
+    it('is flagged after a drop and reconnects on retryNow() once visible again', async () => {
+      const { ctrl, links, attempts, setVisible } = makeLost();
+      await ctrl.connect();
+      setVisible(false);
+      links[0]!.disconnect();
+      expect(ctrl.snapshot.conn).toMatchObject({ state: 'reconnecting', notInRange: false });
+      await until(() => ctrl.snapshot.conn.notInRange, 3000); // first retry after ~1 s
+      expect(ctrl.snapshot.conn.state).toBe('reconnecting');
+      const before = attempts();
+      setVisible(true); // e.g. the user opened the device chooser
+      ctrl.retryNow();
+      await until(() => ctrl.snapshot.conn.state === 'online', 1000); // well before the 2 s backoff
+      expect(attempts()).toBe(before + 1);
+      expect(ctrl.snapshot.conn.notInRange).toBe(false);
+    });
+
+    it('reconnects by itself when the browser reports the device again (waitForPresence)', async () => {
+      let seen: (() => void) | null = null;
+      let watches = 0;
+      const { ctrl, links, setVisible } = makeLost({
+        waitForPresence: (signal) =>
+          new Promise<void>((resolve, reject) => {
+            watches += 1;
+            seen = resolve;
+            signal.addEventListener('abort', () => reject(new Error('aborted')));
+          }),
+      });
+      await ctrl.connect();
+      setVisible(false);
+      links[0]!.disconnect();
+      await until(() => ctrl.snapshot.conn.notInRange, 3000);
+      expect(watches).toBe(1);
+      setVisible(true);
+      seen!();
+      await until(() => ctrl.snapshot.conn.state === 'online', 1000);
+      expect(ctrl.snapshot.conn.notInRange).toBe(false);
+    });
+
+    it('keeps the flag after giving up, and retryNow() starts over', async () => {
+      const { ctrl, links, setVisible } = makeLost({ reconnectGiveUpMs: 0 }); // give up at the first failed retry
+      await ctrl.connect();
+      setVisible(false);
+      links[0]!.disconnect();
+      await until(() => ctrl.snapshot.conn.state === 'failed', 3000);
+      expect(ctrl.snapshot.conn.notInRange).toBe(true);
+      setVisible(true);
+      ctrl.retryNow();
+      await until(() => ctrl.snapshot.conn.state === 'online', 1000);
+    });
+  });
+
+  it('treats a hello timeout on a device that answered before as a link problem, not v3', async () => {
+    let silent = false;
+    const links: FakeFirmwareLink[] = [];
+    const ctrl = new DeviceController({
+      key: 'dev2',
+      gate: new Mutex(),
+      clientOptions: { gapMs: 1, timeoutCooldownMs: 5 },
+      helloTimeoutMs: 100,
+      openLink: async () => {
+        const fw = new FakeFirmwareLink(silent ? { dropNextLines: 99 } : {});
+        links.push(fw);
+        return fw;
+      },
+    });
+    ctrls.push(ctrl);
+    await ctrl.connect();
+    silent = true;
+    links[0]!.disconnect();
+    await until(() => links.length === 2 && ctrl.snapshot.conn.state === 'reconnecting' && ctrl.snapshot.conn.attempt === 2, 4000);
+    expect(ctrl.snapshot.conn.incompatible).toBeNull();
+    silent = false;
+    ctrl.retryNow();
+    await until(() => ctrl.snapshot.conn.state === 'online', 2000);
   });
 
   it('feeds smp samples into the live state and the series', async () => {

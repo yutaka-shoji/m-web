@@ -5,7 +5,7 @@ import type { Quantity } from '../../../core/device/quantities';
 import { UNITS } from '../../../core/device/quantities';
 import { useNow } from '../../composables/useNow';
 import { formatAgo, formatValue, formatVoltage } from '../../format';
-import { locale, t, type MessageKey } from '../../i18n';
+import { t, type MessageKey } from '../../i18n';
 import type { DeviceEntry } from '../../stores/devices';
 import { useDevicesStore } from '../../stores/devices';
 import { useSettingsStore } from '../../stores/settings';
@@ -28,9 +28,16 @@ const SHOWN: readonly Quantity[] = ['t', 'h', 'g', 'v', 'l', 'c'];
 
 const name = computed(() => s.value.meta.name ?? s.value.bleName ?? '—');
 
+/** The browser lost track of the device: it reconnects only after a scan has seen it again. */
+const lost = computed(() => {
+  const c = s.value.conn;
+  return c.notInRange && (c.state === 'reconnecting' || c.state === 'connecting' || c.state === 'failed');
+});
+
 const status = computed(() => {
   const st = s.value;
   const c = st.conn;
+  if (lost.value) return { label: t('device.status.notInRange'), tone: 'warn' as const };
   switch (c.state) {
     case 'idle':
       return { label: t('device.status.idle'), tone: 'muted' as const };
@@ -108,7 +115,6 @@ const rangeDetail = computed(() =>
 const fmtC = (v: number | null, d: number) => (v === null || !Number.isFinite(v) ? '—' : v.toFixed(d));
 
 const battery = computed(() => s.value.meta.battery);
-const firmwareUrl = computed(() => `https://www.mlogger.jp/${locale.value}/manual/start/firmware_update/`);
 
 async function run(action: () => Promise<unknown>) {
   busy.value = true;
@@ -126,7 +132,8 @@ const ctrl = props.entry.controller;
 const startLive = () => run(() => ctrl.startLive());
 const stop = () => run(() => ctrl.stopLogging());
 const addBle = () => run(() => ctrl.startLogging({ zigbee: false, ble: true, flash: true, usb: false }));
-const reconnect = () => void ctrl.connect();
+const find = () => run(() => store.findLostDevices());
+const reconnect = () => (lost.value ? find() : void ctrl.connect());
 const disconnect = () => ctrl.disconnect();
 const remove = () => store.remove(props.entry.key);
 </script>
@@ -148,7 +155,9 @@ const remove = () => store.remove(props.entry.key);
 
     <p v-if="s.conn.state === 'incompatible' && s.conn.incompatible === 'v3'" class="card__note card__note--warn">
       {{ t('device.v3Message') }}
-      <a :href="firmwareUrl" target="_blank" rel="noopener">{{ t('device.firmwareUpdate') }}</a>
+    </p>
+    <p v-else-if="lost" class="card__note card__note--warn">
+      {{ store.autoFind ? t('device.notInRangeAuto') : t('device.notInRangeHint') }}
     </p>
     <p v-else-if="s.stream === 'silent' && s.logging" class="card__note">{{ t('device.deviceOnlyHint') }}</p>
 
@@ -205,11 +214,19 @@ const remove = () => store.remove(props.entry.key);
           </button>
           <button class="btn btn--small btn--quiet" @click="disconnect">{{ t('device.actions.disconnect') }}</button>
         </template>
-        <template v-else-if="s.conn.state === 'reconnecting'">
+        <template v-else-if="s.conn.state === 'reconnecting' || (lost && s.conn.state === 'connecting')">
+          <button v-if="lost" class="btn btn--small" data-testid="find-device" :disabled="busy" @click="find">
+            {{ t('device.actions.find') }}
+          </button>
           <button class="btn btn--small btn--quiet" @click="disconnect">{{ t('device.actions.disconnect') }}</button>
         </template>
-        <template v-else-if="s.conn.state !== 'connecting' && s.conn.state !== 'handshaking'">
-          <button class="btn btn--small" @click="reconnect">{{ t('device.actions.reconnect') }}</button>
+        <template v-else-if="s.conn.state === 'connecting' || s.conn.state === 'handshaking'">
+          <button class="btn btn--small btn--quiet" @click="disconnect">{{ t('device.actions.cancel') }}</button>
+        </template>
+        <template v-else>
+          <button class="btn btn--small" :disabled="busy" @click="reconnect">
+            {{ lost ? t('device.actions.find') : t('device.actions.reconnect') }}
+          </button>
           <button class="btn btn--small btn--quiet" @click="remove">{{ t('device.actions.remove') }}</button>
         </template>
         <button class="btn btn--small btn--quiet" data-testid="device-details" @click="openDetails">

@@ -8,9 +8,13 @@
  * - Connect/unlock runs through a shared gate (one device at a time).
  * - A device that is already logging is never stopped automatically (unlike the phone app).
  * - Automatic reconnect with backoff; unlimited while `keepAlive` is set (recording / download).
+ * - A device the browser has lost track of (`conn.notInRange`, see DeviceNotInRangeError) only
+ *   becomes connectable again after a scan: `waitForPresence` (where supported) or a device
+ *   chooser opened by the user, followed by `retryNow()`.
  * - The clock is set on connect only when the device is idle; while logging it is corrected on
  *   the firmware's own `time_sync_request`.
  */
+import { DeviceNotInRangeError } from '../ble/transport';
 import type { PayloadLink } from '../ble/xbee-link';
 import { MLoggerClient, type CallOptions, type ClientOptions } from '../protocol/client';
 import type { CommandName, ParamsOf, ResultOf } from '../protocol/commands';
@@ -37,6 +41,8 @@ export interface ConnInfo {
   readonly nextRetryAt: number | null;
   readonly error: string | null;
   readonly incompatible: 'v3' | 'not_mlogger' | null;
+  /** The browser no longer sees the device: it must be found by a scan before it can reconnect. */
+  readonly notInRange: boolean;
 }
 
 export interface DeviceMeta {
@@ -78,6 +84,11 @@ export interface DeviceControllerOptions {
   batteryPollMs?: number;
   /** Override the hello timeout (tests). */
   helloTimeoutMs?: number;
+  /**
+   * Resolves when the device is seen advertising again. Given only where the browser can watch
+   * advertisements; lets a device the browser lost track of reconnect without user interaction.
+   */
+  waitForPresence?: (signal: AbortSignal) => Promise<void>;
 }
 
 export class IncompatibleDeviceError extends Error {
@@ -104,6 +115,10 @@ export class DeviceController {
   private readonly giveUpMs: number;
   private readonly batteryPollMs: number;
   private readonly helloTimeoutMs: number | undefined;
+  private readonly waitForPresence: ((signal: AbortSignal) => Promise<void>) | undefined;
+  private presenceWatch: AbortController | null = null;
+  /** Answered a v4 `hello` before: a later hello timeout is a link problem, not old firmware. */
+  private provenV4 = false;
   private readonly tracker = new LiveTracker();
   private readonly stateL = new Listeners<[DeviceState]>();
   private readonly liveL = new Listeners<[LiveState]>();
@@ -133,12 +148,13 @@ export class DeviceController {
     this.giveUpMs = opts.reconnectGiveUpMs ?? 10 * 60_000;
     this.batteryPollMs = opts.batteryPollMs ?? 10 * 60_000;
     this.helloTimeoutMs = opts.helloTimeoutMs;
+    this.waitForPresence = opts.waitForPresence;
     this.series = new DeviceSeries(opts.seriesCapacity);
     const initial: DeviceState = {
       key: opts.key,
       demo: this.demo,
       bleName: opts.bleName ?? null,
-      conn: { state: 'idle', attempt: 0, nextRetryAt: null, error: null, incompatible: null },
+      conn: { state: 'idle', attempt: 0, nextRetryAt: null, error: null, incompatible: null, notInRange: false },
       meta: { name: null, hardwareId: null, firmware: null, battery: null, batteryAt: 0, settings: null, probes: null },
       logging: null,
       transports: null,
@@ -214,9 +230,29 @@ export class DeviceController {
     this.wantConnected = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    this.stopPresenceWatch();
     this.abort?.abort();
     this.teardown('closed by user');
-    this.patch({ conn: { state: 'idle', attempt: 0, nextRetryAt: null, error: null }, stream: 'unknown' });
+    this.patch({
+      conn: { state: 'idle', attempt: 0, nextRetryAt: null, error: null, notInRange: false },
+      stream: 'unknown',
+    });
+  }
+
+  /**
+   * Try again now instead of waiting for the backoff timer (or after giving up) — e.g. right after
+   * the device chooser has scanned, which makes a device the browser had lost track of
+   * connectable again. Does nothing while connected, connecting, or disconnected by the user.
+   */
+  retryNow(): void {
+    if (this.state.conn.state === 'failed') {
+      void this.connect();
+      return;
+    }
+    if (!this.wantConnected || this.client || this.connecting) return;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    void this.runConnect(Math.max(1, this.state.conn.attempt));
   }
 
   private async runConnect(attempt: number): Promise<void> {
@@ -241,13 +277,14 @@ export class DeviceController {
       this.patch({ conn: { state: 'handshaking' } });
       await this.handshake();
       this.reconnectSince = 0;
-      this.patch({ conn: { state: 'online', attempt: 0, error: null, nextRetryAt: null } });
+      this.stopPresenceWatch();
+      this.patch({ conn: { state: 'online', attempt: 0, error: null, nextRetryAt: null, notInRange: false } });
       this.startBatteryPoll();
     } catch (err) {
       this.teardown('connect failed');
       if (err instanceof IncompatibleDeviceError) {
         this.wantConnected = false;
-        this.patch({ conn: { state: 'incompatible', incompatible: err.kind, error: err.message } });
+        this.patch({ conn: { state: 'incompatible', incompatible: err.kind, error: err.message, notInRange: false } });
       } else if (this.wantConnected && !ac.signal.aborted) {
         this.scheduleReconnect(err, attempt + 1);
       } else if (!this.wantConnected) {
@@ -303,16 +340,19 @@ export class DeviceController {
     const now = this.now();
     if (!this.reconnectSince) this.reconnectSince = now;
     const message = err instanceof Error ? err.message : String(err);
+    const notInRange = err instanceof DeviceNotInRangeError;
     if (!this.keepAlive && now - this.reconnectSince > this.giveUpMs) {
       this.wantConnected = false;
-      this.patch({ conn: { state: 'failed', error: message, nextRetryAt: null }, stream: 'unknown' });
+      this.stopPresenceWatch();
+      this.patch({ conn: { state: 'failed', error: message, nextRetryAt: null, notInRange }, stream: 'unknown' });
       return;
     }
+    if (notInRange) this.watchPresence();
     const base = RECONNECT_DELAYS_S[Math.min(attempt - 1, RECONNECT_DELAYS_S.length - 1)]!;
     const delayS = attempt > RECONNECT_DELAYS_S.length ? 60 : base;
     const delayMs = delayS * 1000 * (0.8 + 0.4 * Math.random());
     this.patch({
-      conn: { state: 'reconnecting', attempt, nextRetryAt: now + delayMs, error: message },
+      conn: { state: 'reconnecting', attempt, nextRetryAt: now + delayMs, error: message, notInRange },
       stream: 'unknown',
     });
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -322,16 +362,41 @@ export class DeviceController {
     }, delayMs);
   }
 
+  /** Reconnect as soon as the browser sees the device advertising (where it can tell). */
+  private watchPresence(): void {
+    if (!this.waitForPresence || this.presenceWatch) return;
+    const ac = new AbortController();
+    this.presenceWatch = ac;
+    this.waitForPresence(ac.signal).then(
+      () => {
+        if (this.presenceWatch !== ac) return;
+        this.presenceWatch = null;
+        this.retryNow();
+      },
+      () => {
+        // aborted or refused (e.g. hidden page): the next failed attempt starts a new watch
+        if (this.presenceWatch === ac) this.presenceWatch = null;
+      },
+    );
+  }
+
+  private stopPresenceWatch(): void {
+    this.presenceWatch?.abort();
+    this.presenceWatch = null;
+  }
+
   private async handshake(): Promise<void> {
     const c = this.client!;
     let hello: ResultOf<'hello'>;
     try {
       hello = await c.call('hello', undefined, this.helloTimeoutMs ? { timeoutMs: this.helloTimeoutMs } : {});
     } catch (err) {
-      if (err instanceof CommandTimeoutError) throw new IncompatibleDeviceError('v3');
+      // Silence from a device that has answered before is a link problem, not old firmware.
+      if (err instanceof CommandTimeoutError && !this.provenV4) throw new IncompatibleDeviceError('v3');
       throw err;
     }
     if (hello.device !== 'M-Logger' || !(hello.protocol_version >= 1)) throw new IncompatibleDeviceError('not_mlogger');
+    this.provenV4 = true;
     this.patch({
       meta: { name: hello.name, hardwareId: hello.hardware_id, firmware: hello.firmware_version },
       logging: hello.logging,

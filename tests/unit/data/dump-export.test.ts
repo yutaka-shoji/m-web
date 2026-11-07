@@ -56,8 +56,8 @@ describe('flash download → IndexedDB → CSV', () => {
     const lines = file.parts.join('').split('\r\n').filter(Boolean);
     expect(lines).toHaveLength(1 + 2500);
     // makeRecords(i=0): ts 1767225600 (2026-01-01 09:00:00 JST), t 20.00, g 21.00, h 50.00, co2 400
-    expect(lines[1]).toBe('2026-01-01 09:00:00,1767225600,20.00,50.00,21.00,,,400,,,');
-    expect(lines[2500]).toMatch(/^2026-01-01 12:28:15,1767238095,/);
+    expect(lines[1]).toBe('2026-01-01 09:00:00+09:00,1767225600,20.00,50.00,21.00,,,400,,,');
+    expect(lines[2500]).toMatch(/^2026-01-01 12:28:15\+09:00,1767238095,/);
     expect(file.name).toMatch(/^MLogger_0001_3DF27622_flash_\d{8}-\d{4}\.csv$/);
 
     await deleteDump(db, done!.id);

@@ -3,6 +3,19 @@ import type { Unsubscribe } from '../util/emitter';
 export type CloseReason = 'remote' | 'local';
 
 /**
+ * The browser no longer knows the device, so a connection is not even attempted. Chrome on macOS
+ * forgets a device that is not connected and has not been seen advertising for about three
+ * minutes — i.e. right after a link drops that was up for longer than that. Something has to scan
+ * and see the device again (the device chooser, or `watchAdvertisements()`) before it can connect.
+ */
+export class DeviceNotInRangeError extends Error {
+  constructor(message = 'device not in range', options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'DeviceNotInRangeError';
+  }
+}
+
+/**
  * One GATT connection to an XBee API service, reduced to an ordered byte pipe.
  * Implemented by WebBluetoothTransport (browser, or Node via the `webbluetooth` package)
  * and by test doubles.
