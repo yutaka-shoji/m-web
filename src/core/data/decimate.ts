@@ -81,6 +81,7 @@ function grid(seriesList: readonly DeviceSeries[], ch: SeriesChannel, t0: number
   const minT = new Float64Array(buckets);
   const maxT = new Float64Array(buckets);
   const firstT = new Float64Array(buckets);
+  const lastT = new Float64Array(buckets);
   const count = new Uint32Array(buckets);
   const ys = seriesList.map((s) => {
     count.fill(0);
@@ -94,15 +95,18 @@ function grid(seriesList: readonly DeviceSeries[], ch: SeriesChannel, t0: number
         if (v < minV[b]!) [minV[b], minT[b]] = [v, ts];
         if (v > maxV[b]!) [maxV[b], maxT[b]] = [v, ts];
       }
+      lastT[b] = ts; // samples come in time order
       count[b]! += 1;
     });
     const gapS = gapThreshold(s, ch, t0, t1);
     const y: Y[] = new Array<Y>(buckets * 2).fill(undefined);
-    let lastT = -Infinity;
+    // Gaps are measured between real neighbouring samples (last of one bucket, first of the next),
+    // not from the times of the extremes, which can sit anywhere in a bucket.
+    let prevT = -Infinity;
     for (let b = 0; b < buckets; b++) {
       if (count[b] === 0) continue;
-      if (lastT > -Infinity && b > 0 && firstT[b]! - lastT > gapS) y[2 * b - 1] = null;
-      lastT = Math.max(minT[b]!, maxT[b]!);
+      if (prevT > -Infinity && b > 0 && firstT[b]! - prevT > gapS) y[2 * b - 1] = null;
+      prevT = lastT[b]!;
       if (count[b] === 1 || minV[b] === maxV[b]) y[2 * b] = minV[b]!;
       else if (minT[b]! <= maxT[b]!) {
         y[2 * b] = minV[b]!;
