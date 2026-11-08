@@ -1,0 +1,65 @@
+name: 不具合の報告 / Bug report
+description: 動作がおかしいときに / Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues は誰でも閲覧できます。個人情報や、公開したくない機器名・計測値は書かないでください。
+        先に使い方ガイドの「[うまくいかないとき](https://yutaka-shoji.github.io/m-web/#/guide/うまくいかないとき)」もご確認ください。
+
+        Issues are public: do not include personal information, or logger names and measurements you do not want to publish.
+        Please check [Troubleshooting](https://yutaka-shoji.github.io/m-web/#/guide/troubleshooting) in the guide first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 起きたこと / What happened
+      description: 表示されたメッセージがあれば、そのまま貼り付けてください。 / Paste any message shown, as it is.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: そこまでの操作 / Steps that led to it
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待した動作 / What you expected
+  - type: input
+    id: app-version
+    attributes:
+      label: アプリのバージョン / App version
+      description: 設定 →「このアプリについて」 / Settings → About
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS とブラウザ（バージョンも） / OS and browser, with versions
+      placeholder: Windows 11, Microsoft Edge 156
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: M-Logger のファームウェア / Logger firmware
+      description: カードと「詳細」に表示されます / Shown on the card and in Details
+      placeholder: 4.0.1
+  - type: textarea
+    id: traffic-log
+    attributes:
+      label: 通信ログ / Traffic log
+      description: |
+        設定 →「診断」→「通信ログを保存」で保存したファイルを、ここにドラッグして添付してください。ページを再読み込みすると消えるので、不具合が起きたらその場で保存してください。機器名・機器 ID・計測値が含まれます。
+        Drag the file from Settings → Diagnostics → Save traffic log here. It is cleared when the page reloads, so save it right after the problem occurs. It contains logger names, hardware IDs and measured values.
+  - type: textarea
+    id: other
+    attributes:
+      label: その他（スクリーンショットなど） / Anything else (screenshots, etc.)

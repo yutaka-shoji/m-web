@@ -1,0 +1,26 @@
+name: 機能の要望 / Feature request
+description: 新しい機能や改善の提案 / Suggest a new feature or an improvement
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        同じ要望が既にないか、Issues を検索してから投稿してください。Issues は誰でも閲覧できます。
+
+        Please search the existing issues first. Issues are public.
+  - type: textarea
+    id: goal
+    attributes:
+      label: やりたいこと・困っていること / What you want to do
+      description: どんな計測や場面で、何が足りないか / The measurement or situation, and what is missing
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提案 / Proposal
+      description: こうなるとよい、という案があれば / How it could work, if you have an idea
+  - type: textarea
+    id: workaround
+    attributes:
+      label: 今の回避策 / Current workaround

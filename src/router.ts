@@ -14,6 +14,9 @@ export const router = createRouter({
   ],
   scrollBehavior(to, from, saved) {
     if (saved) return saved;
+    // GuideView scrolls to a section once its heading has rendered; scrolling to the
+    // top here (which runs after it) would undo that.
+    if (to.name === 'guide' && to.params.section) return false;
     if (to.path !== from.path) return { top: 0 };
     return undefined;
   },

@@ -24,6 +24,11 @@ function scrollToSection(): void {
   document.getElementById(id)?.scrollIntoView({ block: 'start' });
 }
 
+// Clicking the current section's link is not a navigation (same route); scroll back to it anyway.
+function onTocClick(id: string): void {
+  if (id === route.params.section) scrollToSection();
+}
+
 // The async component renders after mount; observe the content for headings.
 let observer: MutationObserver | null = null;
 onMounted(() => {
@@ -45,7 +50,12 @@ watch(locale, () => (toc.value = []));
     <nav v-if="toc.length" class="toc" aria-label="Contents">
       <ol>
         <li v-for="h in toc" :key="h.id">
-          <RouterLink :to="`/guide/${h.id}`" :class="{ 'is-active': route.params.section === h.id }">{{ h.text }}</RouterLink>
+          <RouterLink
+            :to="`/guide/${h.id}`"
+            :class="{ 'is-active': route.params.section === h.id }"
+            @click="onTocClick(h.id)"
+            >{{ h.text }}</RouterLink
+          >
         </li>
       </ol>
     </nav>
