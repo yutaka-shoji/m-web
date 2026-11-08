@@ -7,6 +7,7 @@ import {
   finishDump,
   listDumps,
   recoverAbandonedDumps,
+  reopenDump,
   saveDumpBlock,
 } from '../../core/data/dump-store';
 import { runDump, type DumpProgress } from '../../core/protocol/dump-job';
@@ -62,15 +63,19 @@ export const useDumpsStore = defineStore('dumps', () => {
     if (!client || !meta0.hardwareId) throw new Error('logger not connected');
     if (!(await ownsDeviceWork())) throw new Error('another tab holds the loggers');
     const db = await getDb();
-    const job: DumpJob = { dumpId: resume?.id ?? null, total: resume?.total ?? 0, progress: null, error: null, done: false, abort: new AbortController() };
+    // Claimed before the logger is asked anything: a download deleted meanwhile (here or in a tab
+    // whose list this one does not see) is refused, and once claimed it can't be deleted. The list
+    // is read again either way, as it may have been out of date.
+    const resumed = resume ? await reopenDump(db, resume.id).finally(refresh) : null;
+    const job: DumpJob = { dumpId: resumed?.id ?? null, total: resumed?.total ?? 0, progress: null, error: null, done: false, abort: new AbortController() };
     jobs[entry.key] = job;
     const live = jobs[entry.key]!; // reactive proxy
     ctrl.setOp('dump');
     ctrl.keepAlive = true;
-    let dumpId = resume?.id ?? null;
+    let dumpId = resumed?.id ?? null;
     try {
       await runDump(client, {
-        ...(resume ? { startBlock: resume.blocksDone, expectTotal: resume.total } : {}),
+        ...(resumed ? { startBlock: resumed.blocksDone, expectTotal: resumed.total } : {}),
         signal: job.abort.signal,
         onCount: async (info) => {
           live.total = info.count;
@@ -85,8 +90,6 @@ export const useDumpsStore = defineStore('dumps', () => {
             });
             dumpId = m.id;
             live.dumpId = m.id;
-          } else {
-            await finishDump(db, dumpId, 'running');
           }
           await refresh();
         },
@@ -118,10 +121,8 @@ export const useDumpsStore = defineStore('dumps', () => {
   }
 
   async function remove(id: string): Promise<void> {
-    const db = await getDb();
-    // 'running' means a job in this or the other tab is still writing its blocks.
-    if ((await db.get('dumps', id))?.status === 'running') return;
-    await deleteDump(db, id);
+    // Refused while a job (in this or the other tab) is writing the download's blocks.
+    await deleteDump(await getDb(), id);
     await refresh();
   }
 
