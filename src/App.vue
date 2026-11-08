@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { defineAsyncComponent, onMounted } from 'vue';
 import AppHeader from './app/components/layout/AppHeader.vue';
+import AppFooter from './app/components/layout/AppFooter.vue';
 // The drawer (settings, downloads, calibration) loads on first use.
 const DeviceDrawer = defineAsyncComponent(() => import('./app/components/drawer/DeviceDrawer.vue'));
 import { useUnloadGuard } from './app/composables/useAppGuards';
@@ -29,5 +30,6 @@ if (import.meta.env.DEV) Object.assign(window, { __mwebDevices: devices, __mwebR
   <main>
     <RouterView />
   </main>
+  <AppFooter />
   <DeviceDrawer />
 </template>

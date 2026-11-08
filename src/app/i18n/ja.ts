@@ -334,7 +334,12 @@ export const ja = {
     downloadLog: '通信ログを保存',
     about: 'このアプリについて',
     version: 'バージョン {v}',
-    license: 'MIT ライセンス。M-Logger の通信仕様とファームウェアは et0614/mlogger（CERN-OHL-P v2）に基づきます。',
+    license: 'MIT ライセンス。M-Logger の通信仕様は et0614/mlogger（富樫英介、CERN-OHL-P v2）に基づきます。',
+    disclaimer:
+      '本アプリは無保証です。表示・記録した値の正確さや、利用によって生じた損害について、作者は責任を負いません。M-Logger の開発元とは関係のない非公式のアプリです。',
+    disclaimerLink: '免責事項',
+    /** Heading id of that section in the guide (generated from the heading text). */
+    disclaimerSection: '免責事項',
     source: 'ソースコード',
   },
   restore: {

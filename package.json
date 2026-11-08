@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Web Bluetooth dashboard for M-Logger indoor environment loggers",
+  "author": "Shoji, Yutaka",
   "type": "module",
   "license": "MIT",
   "engines": {

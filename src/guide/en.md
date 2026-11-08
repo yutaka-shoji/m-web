@@ -175,3 +175,11 @@ The **Details** panel offers the following. Changes take effect once sent to the
 
 - M-Logger official site: [mlogger.jp](https://www.mlogger.jp/) (product, manuals, firmware updates)
 - Protocol and hardware: [et0614/mlogger](https://github.com/et0614/mlogger)
+
+## Disclaimer
+
+- The app is provided “as is”, without warranty of any kind, including accuracy, completeness and fitness for a particular purpose.
+- The values shown, recorded or exported — including derived values such as MRT, PMV and PPD — are not guaranteed to be accurate. Check them yourself before using them for research, design or assessment.
+- The author is not liable for any damage arising from using or being unable to use the app, including lost data and changes made to loggers (settings, erased device memory).
+- M-Logger is a measuring instrument developed by Eisuke Togashi ([mlogger.jp](https://www.mlogger.jp/)). This app is unofficial: it is not affiliated with or endorsed by the M-Logger developer. Please do not contact the M-Logger developer about this app.
+- The communication protocol and the record format follow [et0614/mlogger](https://github.com/et0614/mlogger) (CERN-OHL-P v2).

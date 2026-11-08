@@ -88,6 +88,10 @@ function saveLog() {
       <p>{{ t('settings.version', { v: version }) }}</p>
       <p class="hint">{{ t('settings.license') }}</p>
       <p class="hint">
+        {{ t('settings.disclaimer') }}
+        <RouterLink :to="`/guide/${t('settings.disclaimerSection')}`">{{ t('settings.disclaimerLink') }}</RouterLink>
+      </p>
+      <p class="hint">
         <a href="https://github.com/et0614/mlogger" target="_blank" rel="noopener">et0614/mlogger</a> ·
         <a href="https://www.mlogger.jp/" target="_blank" rel="noopener">mlogger.jp</a>
       </p>

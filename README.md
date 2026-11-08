@@ -76,7 +76,15 @@ The build uses a relative base and hash routing, so it works under any sub-path.
 ## License and attribution
 
 MIT (see `LICENSE`).
+
 The M-Logger communication protocol, the XBee BLE unlock parameters and the record format were taken
 from [et0614/mlogger](https://github.com/et0614/mlogger) by Eisuke Togashi (CERN-OHL-P v2), in
 particular `docs/protocol_v4.md` and `software/python/mlogger/factory_test.py`.
-M-Logger is a product of Togashi Research Institute; this project is an independent client.
+
+## Disclaimer
+
+This software is provided “as is”, without warranty of any kind. The author does not guarantee the
+accuracy of measured, recorded, exported or derived values (MRT, PMV, PPD) and is not liable for any
+damage arising from its use, including lost data or changes made to loggers.
+M-Logger is developed by Eisuke Togashi ([mlogger.jp](https://www.mlogger.jp/)). m-web is an
+unofficial client, not affiliated with or endorsed by the M-Logger developer.

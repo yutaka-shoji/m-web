@@ -335,7 +335,11 @@ export const en: Messages = {
     downloadLog: 'Save traffic log',
     about: 'About',
     version: 'Version {v}',
-    license: 'MIT licence. The M-Logger protocol and firmware come from et0614/mlogger (CERN-OHL-P v2).',
+    license: 'MIT licence. The M-Logger protocol follows et0614/mlogger by Eisuke Togashi (CERN-OHL-P v2).',
+    disclaimer:
+      'This app comes without any warranty. The author is not liable for the accuracy of displayed or recorded values, or for any damage arising from its use. It is an unofficial app, not affiliated with the M-Logger developer.',
+    disclaimerLink: 'Disclaimer',
+    disclaimerSection: 'disclaimer',
     source: 'Source code',
   },
   restore: {
