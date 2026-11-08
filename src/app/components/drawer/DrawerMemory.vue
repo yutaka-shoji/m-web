@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import type { DumpRecordMeta } from '../../../core/data/db';
 import { estimateDumpSeconds } from '../../../core/protocol/dump-job';
+import { useAppStatus } from '../../composables/useAppStatus';
 import { formatDuration } from '../../format';
 import { locale, t, type MessageKey } from '../../i18n';
 import type { DeviceEntry } from '../../stores/devices';
@@ -10,6 +11,9 @@ import ConfirmDialog from '../ui/ConfirmDialog.vue';
 
 const props = defineProps<{ entry: DeviceEntry; online: boolean }>();
 const dumps = useDumpsStore();
+// Downloads run only in the tab that holds the loggers.
+const app = useAppStatus();
+const otherTab = computed(() => app.tabRole === 'secondary');
 const s = computed(() => props.entry.state.value);
 const count = ref<number | null>(null);
 const msg = ref<{ ok: boolean; text: string } | null>(null);
@@ -119,7 +123,7 @@ async function clear() {
       </p>
     </template>
     <div v-else class="actions">
-      <button class="btn btn--small btn--primary" :disabled="!online || !count" @click="startDownload()">
+      <button class="btn btn--small btn--primary" :disabled="!online || !count || otherTab" @click="startDownload()">
         {{ t('drawer.download') }}
       </button>
       <button class="btn btn--small btn--danger" :disabled="!online || !count || !!s.logging" @click="confirmClear = true">
@@ -142,13 +146,13 @@ async function clear() {
               <button
                 v-if="(d.status === 'paused' || d.status === 'failed') && !running"
                 class="btn btn--small"
-                :disabled="!online || count !== d.total"
+                :disabled="!online || count !== d.total || otherTab"
                 @click="startDownload(d)"
               >
                 {{ t('drawer.resumeDownload') }}
               </button>
               <button v-if="d.status === 'done'" class="btn btn--small" @click="save(d)">{{ t('drawer.saveCsv') }}</button>
-              <button class="btn btn--small btn--quiet" :disabled="running" @click="dumps.remove(d.id)">
+              <button class="btn btn--small btn--quiet" :disabled="running || d.status === 'running'" @click="dumps.remove(d.id)">
                 {{ t('data.delete') }}
               </button>
             </td>

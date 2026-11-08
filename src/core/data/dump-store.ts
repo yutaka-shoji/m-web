@@ -51,6 +51,22 @@ export async function finishDump(
   return meta;
 }
 
+/**
+ * Downloads still marked 'running' although no job runs them any more (the page was reloaded or
+ * closed mid-download) become 'paused', so they can be resumed. `running` = ids of the jobs that
+ * do still run. Call only where no other tab can be downloading.
+ */
+export async function recoverAbandonedDumps(db: Db, running: ReadonlySet<string> = new Set()): Promise<DumpRecordMeta[]> {
+  const out: DumpRecordMeta[] = [];
+  for (const meta of await db.getAll('dumps')) {
+    if (meta.status !== 'running' || running.has(meta.id)) continue;
+    meta.status = 'paused';
+    await db.put('dumps', meta);
+    out.push(meta);
+  }
+  return out;
+}
+
 export async function listDumps(db: Db): Promise<DumpRecordMeta[]> {
   return (await db.getAll('dumps')).sort((a, b) => b.startedAt - a.startedAt);
 }

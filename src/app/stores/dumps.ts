@@ -1,9 +1,17 @@
 import { defineStore } from 'pinia';
 import { reactive, shallowRef } from 'vue';
 import type { DumpRecordMeta } from '../../core/data/db';
-import { createDump, deleteDump, finishDump, listDumps, saveDumpBlock } from '../../core/data/dump-store';
+import {
+  createDump,
+  deleteDump,
+  finishDump,
+  listDumps,
+  recoverAbandonedDumps,
+  saveDumpBlock,
+} from '../../core/data/dump-store';
 import { runDump, type DumpProgress } from '../../core/protocol/dump-job';
 import { AbortedError } from '../../core/protocol/errors';
+import { ownsDeviceWork } from '../composables/useAppStatus';
 import { getDb } from '../db';
 import { downloadBlob, runExport } from '../export';
 import type { DeviceEntry } from './devices';
@@ -24,7 +32,25 @@ export const useDumpsStore = defineStore('dumps', () => {
   /** Running/finished jobs per device key (this page session). */
   const jobs = reactive<Record<string, DumpJob>>({});
 
+  /** Ids of the downloads this page is running. */
+  function runningHere(): Set<string> {
+    return new Set(Object.values(jobs).flatMap((j) => (j.dumpId && !j.done ? [j.dumpId] : [])));
+  }
+
+  // A download left 'running' by a reloaded or closed page cannot be resumed until it is marked
+  // 'paused'. Only the tab that holds the devices can be downloading, so it alone does this.
+  let recovered: Promise<void> | null = null;
+  function recoverOnce(): Promise<void> {
+    recovered ??= (async () => {
+      if (await ownsDeviceWork()) await recoverAbandonedDumps(await getDb(), runningHere());
+    })().catch(() => {
+      recovered = null; // try again on the next refresh
+    });
+    return recovered;
+  }
+
   async function refresh(): Promise<void> {
+    await recoverOnce();
     list.value = await listDumps(await getDb());
   }
 
@@ -34,6 +60,7 @@ export const useDumpsStore = defineStore('dumps', () => {
     const client = ctrl.protocolClient;
     const meta0 = ctrl.snapshot.meta;
     if (!client || !meta0.hardwareId) throw new Error('logger not connected');
+    if (!(await ownsDeviceWork())) throw new Error('another tab holds the loggers');
     const db = await getDb();
     const job: DumpJob = { dumpId: resume?.id ?? null, total: resume?.total ?? 0, progress: null, error: null, done: false, abort: new AbortController() };
     jobs[entry.key] = job;
@@ -91,7 +118,10 @@ export const useDumpsStore = defineStore('dumps', () => {
   }
 
   async function remove(id: string): Promise<void> {
-    await deleteDump(await getDb(), id);
+    const db = await getDb();
+    // 'running' means a job in this or the other tab is still writing its blocks.
+    if ((await db.get('dumps', id))?.status === 'running') return;
+    await deleteDump(db, id);
     await refresh();
   }
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useAppStatus } from '../../composables/useAppStatus';
 import { useNow } from '../../composables/useNow';
 import { formatDuration } from '../../format';
 import { t } from '../../i18n';
@@ -8,6 +9,7 @@ import { useRecordingStore } from '../../stores/recording';
 import ConfirmDialog from '../ui/ConfirmDialog.vue';
 
 const rec = useRecordingStore();
+const app = useAppStatus();
 const devices = useDevicesStore();
 const now = useNow();
 const title = ref('');
@@ -77,8 +79,8 @@ async function stop() {
       </label>
       <button
         class="btn btn--primary rec__start"
-        :disabled="!online || busy"
-        :title="!online ? t('recording.noDevice') : undefined"
+        :disabled="!online || busy || app.tabRole === 'secondary'"
+        :title="app.tabRole === 'secondary' ? t('banner.otherTab') : !online ? t('recording.noDevice') : undefined"
         data-testid="start-recording"
         @click="start"
       >
