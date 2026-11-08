@@ -42,6 +42,8 @@ export class DeviceSeries {
   private readonly flags: Uint16Array;
   private start = 0;
   private len = 0;
+  /** Samples dropped from the front so far (ring buffer full, or clear()). */
+  private dropped = 0;
   version = 0;
 
   constructor(capacity = 200_000) {
@@ -64,6 +66,15 @@ export class DeviceSeries {
     return this.len ? this.ts[this.ring(this.len - 1)]! : NaN;
   }
 
+  /**
+   * Sequence number of the oldest retained sample. Samples are numbered 0, 1, 2 … in the order
+   * they were appended, so the k-th retained sample is number `firstSeq + k`; unlike k, that
+   * number does not shift when a full buffer drops its oldest sample.
+   */
+  get firstSeq(): number {
+    return this.dropped;
+  }
+
   private ring(k: number): number {
     return (this.start + k) % this.capacity;
   }
@@ -78,6 +89,7 @@ export class DeviceSeries {
     } else {
       i = this.start;
       this.start = (this.start + 1) % this.capacity;
+      this.dropped += 1;
     }
     this.ts[i] = ts;
     for (const ch of CHANNELS) {
@@ -122,6 +134,7 @@ export class DeviceSeries {
   }
 
   clear(): void {
+    this.dropped += this.len;
     this.start = 0;
     this.len = 0;
     this.version += 1;
