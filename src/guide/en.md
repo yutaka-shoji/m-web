@@ -165,6 +165,19 @@ The **Details** panel offers the following. Changes take effect once sent to the
 | Frequent disconnects | Move closer and reduce obstacles; fewer simultaneous loggers can help |
 | Recording stopped | Recordings without “save on flash” stop on the logger when the link drops; the app restarts them after reconnecting, but values during the outage are not kept |
 
+## Bug reports and feature requests
+
+Please report bugs and request features in [GitHub Issues](https://github.com/yutaka-shoji/m-web/issues) (posting needs a GitHub account). Under **New issue**, choose “Bug report” or “Feature request” to get a form. Questions about this app belong there, not with the M-Logger developer.
+
+When reporting a bug, please include:
+
+- What happened (any message shown) and the steps that led to it
+- The app version (Settings → About), the OS, and the browser with its version
+- The logger's firmware version (shown on the card and in Details)
+- The traffic log (Settings → Diagnostics → Save traffic log). It is cleared when the page reloads, so save it right after the problem occurs
+
+Issues are public. The traffic log contains logger names, hardware IDs and measured values — check that you are fine with publishing it before attaching it.
+
 ## Data and privacy
 
 - Measurements and settings are stored only in this browser (IndexedDB, localStorage) and never sent to a server.
@@ -175,6 +188,7 @@ The **Details** panel offers the following. Changes take effect once sent to the
 
 - M-Logger official site: [mlogger.jp](https://www.mlogger.jp/) (product, manuals, firmware updates)
 - Protocol and hardware: [et0614/mlogger](https://github.com/et0614/mlogger)
+- Source code of this app: [yutaka-shoji/m-web](https://github.com/yutaka-shoji/m-web)
 
 ## Disclaimer
 
