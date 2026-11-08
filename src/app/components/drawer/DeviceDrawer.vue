@@ -13,6 +13,7 @@ import DrawerSettings from './DrawerSettings.vue';
 const route = useRoute();
 const router = useRouter();
 const devices = useDevicesStore();
+const overlay = ref<HTMLElement>();
 const panel = ref<HTMLElement>();
 
 const key = computed(() => (typeof route.query.device === 'string' ? route.query.device : null));
@@ -31,15 +32,56 @@ function close() {
 const onKey = (e: KeyboardEvent) => {
   if (e.key === 'Escape' && entry.value && !document.querySelector('dialog[open]')) close();
 };
-onMounted(() => window.addEventListener('keydown', onKey));
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
-watch(entry, (e) => e && setTimeout(() => panel.value?.focus(), 0));
+// Modal behaviour (aria-modal alone does not provide it): while the drawer is open the rest of
+// the page is inert, so Tab cannot reach the dashboard behind it, and focus returns to where it
+// was when the drawer closes.
+let restoreFocus: HTMLElement | null = null;
+let inertEls: HTMLElement[] = [];
+function setBackgroundInert(on: boolean) {
+  for (const el of inertEls) el.inert = false;
+  inertEls = [];
+  const root = overlay.value;
+  if (!on || !root?.parentElement) return;
+  for (const el of root.parentElement.children) {
+    if (el === root || !(el instanceof HTMLElement) || el.inert) continue;
+    el.inert = true;
+    inertEls.push(el);
+  }
+}
+function onShown(key: string | null, prev: string | null) {
+  if (key && !prev) restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  setBackgroundInert(!!key);
+  if (key) panel.value?.focus();
+  else if (prev) {
+    restoreFocus?.focus();
+    restoreFocus = null;
+  }
+}
+watch(() => entry.value?.key ?? null, onShown, { flush: 'post' });
+onMounted(() => {
+  window.addEventListener('keydown', onKey);
+  if (entry.value) onShown(entry.value.key, null);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey);
+  setBackgroundInert(false);
+});
 </script>
 
 <template>
   <Transition name="drawer">
-    <div v-if="entry" class="overlay" @click.self="close">
-      <aside ref="panel" class="panel" role="dialog" aria-modal="true" :aria-label="t('drawer.title')" tabindex="-1">
+    <div v-if="entry" ref="overlay" class="overlay" @click.self="close">
+      <!-- Keyed by device: switching loggers rebuilds the sections, so no loaded values or
+           event subscriptions of the previous logger carry over. -->
+      <aside
+        :key="entry.key"
+        ref="panel"
+        class="panel"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="t('drawer.title')"
+        tabindex="-1"
+      >
         <header class="panel__head">
           <span class="panel__dot" :style="{ background: `var(--series-${entry.colorIndex + 1})` }" aria-hidden="true" />
           <div class="panel__title">
