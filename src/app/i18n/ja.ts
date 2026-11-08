@@ -261,6 +261,7 @@ export const ja = {
     reload: '機器から読み込む',
     sent: '送信しました',
     intervalRange: '間隔は 1〜86400 秒で指定してください',
+    startAtInvalid: '開始する日時を、これから先の日時で入力してください',
     memory: '本体データ（フラッシュ）',
     records: '{n} 件',
     estimate: '読み出しの目安 {time}',

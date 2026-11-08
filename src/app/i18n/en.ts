@@ -262,6 +262,7 @@ export const en: Messages = {
     reload: 'Read from logger',
     sent: 'Sent',
     intervalRange: 'Intervals must be 1–86400 s',
+    startAtInvalid: 'Enter a start date and time in the future',
     memory: 'Device memory (flash)',
     records: '{n} records',
     estimate: 'Download takes about {time}',
