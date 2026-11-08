@@ -80,9 +80,13 @@ export const useRecordingStore = defineStore('recording', () => {
 
   async function refresh(): Promise<void> {
     if (!db) return;
-    sessions.value = (await db.getAll('sessions'))
-      .filter((s) => s.status !== 'deleting')
-      .sort((a, b) => b.startedAt - a.startedAt);
+    const all = await db.getAll('sessions');
+    sessions.value = all.filter((s) => s.status !== 'deleting').sort((a, b) => b.startedAt - a.startedAt);
+    // The banner keeps the sessions that are still interrupted: not resumed, not deleted (in
+    // this or another tab).
+    const still = new Set(all.filter((s) => s.status === 'interrupted').map((s) => s.id));
+    const left = interrupted.value.filter((s) => still.has(s.id));
+    if (left.length !== interrupted.value.length) interrupted.value = left;
   }
 
   async function estimate(): Promise<void> {
@@ -152,14 +156,22 @@ export const useRecordingStore = defineStore('recording', () => {
     requireOwner();
     const tr: Transports = { zigbee: false, ble: true, flash, usb: false };
     const online = devices.entries.filter((e) => e.state.value.conn.state === 'online' && e.state.value.meta.hardwareId);
+    // The session is claimed, and the loggers join it, before any logger is started: a session
+    // that is gone or being deleted is refused without touching them, and the recorder hears every
+    // sample from the start.
+    try {
+      await recorder!.resume(
+        sessionId,
+        online.map((e) => ({ controller: e.controller, colorIndex: e.colorIndex })),
+        tr,
+      );
+    } catch (err) {
+      await refresh(); // the lists may be out of date (e.g. deleted in another tab)
+      throw err;
+    }
     await Promise.allSettled(online.map((e) => ensureLogging(e, tr)));
+    // Only now: while the loggers are starting, syncDevices would start them a second time.
     transports.value = tr;
-    await recorder!.resume(
-      sessionId,
-      online.map((e) => ({ controller: e.controller, colorIndex: e.colorIndex })),
-      tr,
-    );
-    interrupted.value = interrupted.value.filter((s) => s.id !== sessionId);
     await refresh();
   }
 
@@ -170,9 +182,7 @@ export const useRecordingStore = defineStore('recording', () => {
   async function remove(sessionId: string): Promise<void> {
     if (!db || active.value?.id === sessionId) return;
     // Refused while it is being recorded: here, or in another tab (still 'recording' there).
-    if (await dbDeleteSession(db, sessionId)) {
-      interrupted.value = interrupted.value.filter((s) => s.id !== sessionId);
-    }
+    await dbDeleteSession(db, sessionId);
     await refresh();
     await estimate();
   }

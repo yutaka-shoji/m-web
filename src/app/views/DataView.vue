@@ -77,6 +77,21 @@ async function download(s: SessionRecord) {
   }
 }
 
+const resuming = ref(false);
+
+async function resume(s: SessionRecord) {
+  message.value = null;
+  errorMsg.value = null;
+  resuming.value = true;
+  try {
+    await rec.resume(s.id);
+  } catch (e) {
+    errorMsg.value = t('error.commandFailed', { message: e instanceof Error ? e.message : String(e) });
+  } finally {
+    resuming.value = false;
+  }
+}
+
 async function confirmDelete() {
   const s = toDelete.value;
   toDelete.value = null;
@@ -138,7 +153,8 @@ async function confirmDelete() {
                 <button
                   v-if="s.status === 'interrupted' && !rec.active && app.tabRole !== 'secondary'"
                   class="btn btn--small"
-                  @click="rec.resume(s.id)"
+                  :disabled="resuming"
+                  @click="resume(s)"
                 >
                   {{ t('data.resume') }}
                 </button>
