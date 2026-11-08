@@ -1,0 +1,44 @@
+{
+  "name": "m-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web Bluetooth dashboard for M-Logger indoor environment loggers",
+  "author": "Shoji, Yutaka",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check-size": "node scripts/check-size.mjs",
+    "format": "prettier --write \"src/**/*.{ts,vue,css,md}\" \"tests/**/*.ts\" \"scripts/**/*.{ts,mjs}\"",
+    "hw:smoke": "node scripts/hw-smoke.mjs"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "idb": "^8.0.4",
+    "pinia": "^4.1.0",
+    "uplot": "^1.6.32",
+    "vue": "^3.5.45",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/web-bluetooth": "^0.0.22",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "fake-indexeddb": "^6.2.7",
+    "prettier": "^3.9.10",
+    "puppeteer-core": "^25.16.0",
+    "typescript": "~6.0.3",
+    "unplugin-vue-markdown": "^32.1.1",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0",
+    "vue-tsc": "^3.3.14"
+  }
+}
