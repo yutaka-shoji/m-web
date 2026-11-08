@@ -14,7 +14,8 @@ import type { Settings, Transports } from '../protocol/types';
 export const DB_NAME = 'm-web';
 export const DB_VERSION = 1;
 
-export type SessionStatus = 'recording' | 'stopped' | 'interrupted';
+/** 'deleting': its deletion has started (deleteSession); it is never resumed or shown again. */
+export type SessionStatus = 'recording' | 'stopped' | 'interrupted' | 'deleting';
 
 export interface SessionDevice {
   hardwareId: string;
@@ -135,8 +136,19 @@ export async function* iterateChunks(db: Db, sessionId: string, hardwareId: stri
   }
 }
 
-/** Delete a session and its chunks/events in batches (resumable). */
-export async function deleteSession(db: Db, sessionId: string): Promise<void> {
+/**
+ * Delete a session and its chunks/events, unless it is being recorded (then returns false). The
+ * session is first marked 'deleting', checked and written in one transaction: a resume in this or
+ * another tab either comes first, and nothing is deleted, or finds the mark and is refused
+ * (Recorder.resume). The chunks then go in batches; `finishDeletions` completes a deletion that
+ * closing the page cut short.
+ */
+export async function deleteSession(db: Db, sessionId: string): Promise<boolean> {
+  const claim = db.transaction('sessions', 'readwrite');
+  const session = await claim.store.get(sessionId);
+  if (session?.status === 'recording') return false;
+  if (session && session.status !== 'deleting') await claim.store.put({ ...session, status: 'deleting' });
+  await claim.done;
   for (;;) {
     const tx = db.transaction('chunks', 'readwrite');
     const keys = await tx.store.index('bySession').getAllKeys(sessionId, 500);
@@ -149,4 +161,12 @@ export async function deleteSession(db: Db, sessionId: string): Promise<void> {
   for (const k of evKeys) await tx.objectStore('events').delete(k);
   await tx.objectStore('sessions').delete(sessionId);
   await tx.done;
+  return true;
+}
+
+/** Complete the deletions that closing the page cut short (sessions left 'deleting'). */
+export async function finishDeletions(db: Db): Promise<void> {
+  for (const s of await db.getAll('sessions')) {
+    if (s.status === 'deleting') await deleteSession(db, s.id);
+  }
 }

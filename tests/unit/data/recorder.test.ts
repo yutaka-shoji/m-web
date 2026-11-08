@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_CONDITIONS } from '../../../src/core/comfort/comfort';
 import { meanRadiantTemperature } from '../../../src/core/comfort/mrt';
 import { pmvPpd } from '../../../src/core/comfort/pmv';
-import { openMWebDB, type Db } from '../../../src/core/data/db';
+import { deleteSession, finishDeletions, openMWebDB, type ChunkRecord, type Db } from '../../../src/core/data/db';
 import { Recorder } from '../../../src/core/data/recorder';
 import { DeviceController } from '../../../src/core/device/controller';
 import { exportSessionCsv } from '../../../src/core/export/export-session';
@@ -18,7 +18,8 @@ afterEach(() => {
 });
 
 async function setup() {
-  const db: Db = await openMWebDB(`test-${++dbCount}`);
+  const name = `test-${++dbCount}`;
+  const db: Db = await openMWebDB(name);
   let fw!: FakeFirmwareLink;
   const ctrl = new DeviceController({
     key: 'k1',
@@ -34,7 +35,7 @@ async function setup() {
   await ctrl.connect();
   cleanups.push(() => ctrl.dispose());
   const rec = new Recorder(db, { flushMs: 0, appVersion: 'test' });
-  return { db, ctrl, fw: () => fw, rec };
+  return { db, name, ctrl, fw: () => fw, rec };
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 30));
@@ -106,5 +107,75 @@ describe('Recorder + CSV export', () => {
     const lines = file!.parts.join('').trim().split('\r\n');
     expect(lines).toHaveLength(3);
     expect(lines[1]!.startsWith('MLogger_0001,3DF27622,')).toBe(true);
+  });
+});
+
+describe('deleting and resuming one session in two tabs', () => {
+  const chunk = (sessionId: string, seq: number): ChunkRecord => {
+    const f = () => new Float32Array([20]);
+    return {
+      sessionId,
+      hardwareId: '3DF27622',
+      seq,
+      t0: 1_800_000_000 + seq,
+      t1: 1_800_000_000 + seq,
+      n: 1,
+      ts: new Float64Array([1_800_000_000 + seq]),
+      t: f(),
+      h: f(),
+      g: f(),
+      v: f(),
+      vv: f(),
+      l: f(),
+      c: f(),
+      flags: new Uint16Array(1),
+    };
+  };
+
+  /** A stopped session with `n` chunks, and a second connection to its database (the other tab). */
+  async function stoppedSession(n: number) {
+    const { db, name, ctrl, rec } = await setup();
+    const s = await rec.start({ title: 'x', conditions: DEFAULT_CONDITIONS, transports: TRANSPORTS, devices: [{ controller: ctrl, colorIndex: 0 }] });
+    await rec.stop();
+    const tx = db.transaction('chunks', 'readwrite');
+    for (let seq = 0; seq < n; seq++) void tx.store.put(chunk(s.id, seq));
+    await tx.done;
+    return { db, other: await openMWebDB(name), ctrl, id: s.id };
+  }
+
+  it('refuses to resume a session whose deletion has started, and completes the deletion', async () => {
+    const { db, other, ctrl, id } = await stoppedSession(1200); // three deletion batches
+    const deletion = deleteSession(other, id);
+    const rec2 = new Recorder(db, { flushMs: 0 });
+    await expect(rec2.resume(id, [{ controller: ctrl, colorIndex: 0 }], TRANSPORTS)).rejects.toThrow('being deleted');
+    expect(rec2.active).toBeNull();
+    expect(await deletion).toBe(true);
+    expect(await db.get('sessions', id)).toBeUndefined();
+    expect(await db.count('chunks')).toBe(0);
+    expect(await db.count('events')).toBe(0);
+  });
+
+  it('keeps every sample of a session resumed before its deletion was asked for', async () => {
+    const { db, other, ctrl, id } = await stoppedSession(1200);
+    const rec2 = new Recorder(db, { flushMs: 0 });
+    const resumed = rec2.resume(id, [{ controller: ctrl, colorIndex: 0 }], TRANSPORTS);
+    const deletion = deleteSession(other, id);
+    await resumed;
+    expect(await deletion).toBe(false);
+    expect((await db.get('sessions', id))?.status).toBe('recording');
+    expect(await db.count('chunks')).toBe(1200);
+    await rec2.stop();
+  });
+
+  it('completes a deletion that closing the page cut short', async () => {
+    const { db, id } = await stoppedSession(700);
+    // The page went away after the session was marked and the first batch of chunks deleted.
+    await db.put('sessions', { ...(await db.get('sessions', id))!, status: 'deleting' });
+    const keys = await db.getAllKeys('chunks', undefined, 500);
+    for (const k of keys) await db.delete('chunks', k);
+    await finishDeletions(db);
+    expect(await db.get('sessions', id)).toBeUndefined();
+    expect(await db.count('chunks')).toBe(0);
+    expect(await db.count('events')).toBe(0);
   });
 });

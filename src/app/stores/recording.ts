@@ -1,6 +1,11 @@
 import { defineStore } from 'pinia';
 import { markRaw, ref, shallowRef, watch } from 'vue';
-import { deleteSession as dbDeleteSession, type Db, type SessionRecord } from '../../core/data/db';
+import {
+  deleteSession as dbDeleteSession,
+  finishDeletions,
+  type Db,
+  type SessionRecord,
+} from '../../core/data/db';
 import { Recorder } from '../../core/data/recorder';
 import type { Transports } from '../../core/protocol/types';
 import { ownsDeviceWork } from '../composables/useAppStatus';
@@ -56,7 +61,13 @@ export const useRecordingStore = defineStore('recording', () => {
       samples.value = s.samples;
       error.value = s.error;
     });
-    if (owner) interrupted.value = await Recorder.recoverInterrupted(d);
+    if (owner) {
+      interrupted.value = await Recorder.recoverInterrupted(d);
+      // In the background: a long session takes a while, and it is no longer listed anyway.
+      void finishDeletions(d)
+        .then(() => estimate())
+        .catch(() => undefined);
+    }
     await refresh();
     await estimate();
     ready.value = true;
@@ -69,7 +80,9 @@ export const useRecordingStore = defineStore('recording', () => {
 
   async function refresh(): Promise<void> {
     if (!db) return;
-    sessions.value = (await db.getAll('sessions')).sort((a, b) => b.startedAt - a.startedAt);
+    sessions.value = (await db.getAll('sessions'))
+      .filter((s) => s.status !== 'deleting')
+      .sort((a, b) => b.startedAt - a.startedAt);
   }
 
   async function estimate(): Promise<void> {
@@ -156,10 +169,10 @@ export const useRecordingStore = defineStore('recording', () => {
 
   async function remove(sessionId: string): Promise<void> {
     if (!db || active.value?.id === sessionId) return;
-    // Still 'recording' after the startup check: another tab is writing it.
-    if ((await db.get('sessions', sessionId))?.status === 'recording') return;
-    await dbDeleteSession(db, sessionId);
-    interrupted.value = interrupted.value.filter((s) => s.id !== sessionId);
+    // Refused while it is being recorded: here, or in another tab (still 'recording' there).
+    if (await dbDeleteSession(db, sessionId)) {
+      interrupted.value = interrupted.value.filter((s) => s.id !== sessionId);
+    }
     await refresh();
     await estimate();
   }
