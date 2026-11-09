@@ -71,9 +71,14 @@ function num(v: number | null, digits: number): string {
   return s === '-0' || /^-0\.0*$/.test(s) ? s.slice(1) : s;
 }
 
-/** RFC 4180 quoting for free text (device names). */
+/**
+ * Free text (device names) for a CSV cell. Text that a spreadsheet would run as a formula
+ * (starting with = + - @, tab or CR) gets a leading apostrophe (OWASP "CSV injection"), then
+ * RFC 4180 quoting.
+ */
 export function csvText(s: string): string {
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 export function csvLine(

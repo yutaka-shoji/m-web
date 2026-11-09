@@ -121,17 +121,27 @@ export class Recorder {
   /** Continue an interrupted (or stopped) session. */
   async resume(sessionId: string, devices: RecorderDevice[], transports: Transports): Promise<SessionRecord> {
     if (this.session) throw new Error('a recording is already running');
-    const session = await this.db.get('sessions', sessionId);
+    // Checked and marked 'recording' in one transaction, so a deletion in this or another tab
+    // either has started (and the session is refused) or will be refused (see deleteSession).
+    const tx = this.db.transaction('sessions', 'readwrite');
+    const session = await tx.store.get(sessionId);
     if (!session) throw new Error('session not found');
+    if (session.status === 'deleting') throw new Error('the session is being deleted');
+    if (session.status === 'recording') throw new Error('the session is already being recorded');
     session.status = 'recording';
     session.endedAt = null;
-    await this.db.put('sessions', session);
+    await tx.store.put(session);
+    await tx.done;
     this.session = session;
     this.error = null;
-    for (const d of devices) await this.join(d, transports);
-    await this.logEvent('start', null, 'resumed');
-    this.startTimer();
-    this.emit();
+    try {
+      for (const d of devices) await this.join(d, transports);
+    } finally {
+      // The session is claimed: it runs even if a logger failed to join (it can join later).
+      await this.logEvent('start', null, 'resumed');
+      this.startTimer();
+      this.emit();
+    }
     return session;
   }
 

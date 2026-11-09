@@ -1,9 +1,18 @@
 import { defineStore } from 'pinia';
 import { reactive, shallowRef } from 'vue';
 import type { DumpRecordMeta } from '../../core/data/db';
-import { createDump, deleteDump, finishDump, listDumps, saveDumpBlock } from '../../core/data/dump-store';
+import {
+  createDump,
+  deleteDump,
+  finishDump,
+  listDumps,
+  recoverAbandonedDumps,
+  reopenDump,
+  saveDumpBlock,
+} from '../../core/data/dump-store';
 import { runDump, type DumpProgress } from '../../core/protocol/dump-job';
 import { AbortedError } from '../../core/protocol/errors';
+import { ownsDeviceWork } from '../composables/useAppStatus';
 import { getDb } from '../db';
 import { downloadBlob, runExport } from '../export';
 import type { DeviceEntry } from './devices';
@@ -24,7 +33,25 @@ export const useDumpsStore = defineStore('dumps', () => {
   /** Running/finished jobs per device key (this page session). */
   const jobs = reactive<Record<string, DumpJob>>({});
 
+  /** Ids of the downloads this page is running. */
+  function runningHere(): Set<string> {
+    return new Set(Object.values(jobs).flatMap((j) => (j.dumpId && !j.done ? [j.dumpId] : [])));
+  }
+
+  // A download left 'running' by a reloaded or closed page cannot be resumed until it is marked
+  // 'paused'. Only the tab that holds the devices can be downloading, so it alone does this.
+  let recovered: Promise<void> | null = null;
+  function recoverOnce(): Promise<void> {
+    recovered ??= (async () => {
+      if (await ownsDeviceWork()) await recoverAbandonedDumps(await getDb(), runningHere());
+    })().catch(() => {
+      recovered = null; // try again on the next refresh
+    });
+    return recovered;
+  }
+
   async function refresh(): Promise<void> {
+    await recoverOnce();
     list.value = await listDumps(await getDb());
   }
 
@@ -34,16 +61,28 @@ export const useDumpsStore = defineStore('dumps', () => {
     const client = ctrl.protocolClient;
     const meta0 = ctrl.snapshot.meta;
     if (!client || !meta0.hardwareId) throw new Error('logger not connected');
+    if (!(await ownsDeviceWork())) throw new Error('another tab holds the loggers');
     const db = await getDb();
-    const job: DumpJob = { dumpId: resume?.id ?? null, total: resume?.total ?? 0, progress: null, error: null, done: false, abort: new AbortController() };
+    // Recovery first: run later, it would take the claimed download (not yet among the jobs) for
+    // an abandoned one and mark it 'paused'.
+    await recoverOnce();
+    // Claimed before the logger is asked anything: a download deleted meanwhile (here or in a tab
+    // whose list this one does not see) is refused, and once claimed it can't be deleted.
+    const resumed = resume
+      ? await reopenDump(db, resume.id).catch(async (err: unknown) => {
+          await refresh(); // the list was out of date
+          throw err;
+        })
+      : null;
+    const job: DumpJob = { dumpId: resumed?.id ?? null, total: resumed?.total ?? 0, progress: null, error: null, done: false, abort: new AbortController() };
     jobs[entry.key] = job;
     const live = jobs[entry.key]!; // reactive proxy
     ctrl.setOp('dump');
     ctrl.keepAlive = true;
-    let dumpId = resume?.id ?? null;
+    let dumpId = resumed?.id ?? null;
     try {
       await runDump(client, {
-        ...(resume ? { startBlock: resume.blocksDone, expectTotal: resume.total } : {}),
+        ...(resumed ? { startBlock: resumed.blocksDone, expectTotal: resumed.total } : {}),
         signal: job.abort.signal,
         onCount: async (info) => {
           live.total = info.count;
@@ -58,8 +97,6 @@ export const useDumpsStore = defineStore('dumps', () => {
             });
             dumpId = m.id;
             live.dumpId = m.id;
-          } else {
-            await finishDump(db, dumpId, 'running');
           }
           await refresh();
         },
@@ -91,6 +128,7 @@ export const useDumpsStore = defineStore('dumps', () => {
   }
 
   async function remove(id: string): Promise<void> {
+    // Refused while a job (in this or the other tab) is writing the download's blocks.
     await deleteDump(await getDb(), id);
     await refresh();
   }

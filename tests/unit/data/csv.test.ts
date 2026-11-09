@@ -1,5 +1,24 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { localDateTime } from '../../../src/core/data/csv';
+import { csvText, localDateTime } from '../../../src/core/data/csv';
+
+describe('csvText', () => {
+  it('quotes separators and quotes (RFC 4180)', () => {
+    expect(csvText('Room A')).toBe('Room A');
+    expect(csvText('会議室A')).toBe('会議室A');
+    expect(csvText('A,B')).toBe('"A,B"');
+    expect(csvText('say "hi"')).toBe('"say ""hi"""');
+  });
+
+  it('keeps names that a spreadsheet would run as formulas as plain text', () => {
+    expect(csvText('=1+1')).toBe("'=1+1");
+    expect(csvText('+81')).toBe("'+81");
+    expect(csvText('-3F')).toBe("'-3F");
+    expect(csvText('@SUM(A1)')).toBe("'@SUM(A1)");
+    expect(csvText('\t=1')).toBe("'\t=1");
+    expect(csvText('=HYPERLINK("x","y")')).toBe('"\'=HYPERLINK(""x"",""y"")"');
+    expect(csvText('A=1')).toBe('A=1');
+  });
+});
 
 // Node re-reads process.env.TZ for every Date operation, so zones can be switched per test.
 const original = process.env.TZ;

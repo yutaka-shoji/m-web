@@ -67,7 +67,8 @@ self.onmessage = async (ev: MessageEvent<ExportRequest>) => {
       return;
     }
     const session = await db.get('sessions', req.sessionId);
-    if (!session) throw new Error('session not found');
+    // A session being deleted has already lost part of its samples.
+    if (!session || session.status === 'deleting') throw new Error('session not found');
     const files = await exportSessionCsv(db, session, { ...req.options, onProgress });
     const rows = files.reduce((n, f) => n + f.rows, 0);
     if (!req.zip && files.length === 1) {

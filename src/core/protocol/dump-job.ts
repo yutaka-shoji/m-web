@@ -5,9 +5,14 @@
  * so late bytes of the previous attempt cannot mix into the next response. Completion is
  * judged by byte count, never by `dump_end`. Blocks are handed to `onBlock` as they finish,
  * which makes the job resumable from any block boundary.
+ *
+ * Whenever a block request ends early (stall, cancel, timeout, bad header) the firmware may
+ * still be streaming the rest of the block. The device is handed back only once it has gone
+ * quiet; if it keeps sending, the link is closed instead (the controller reconnects), since
+ * those bytes would otherwise be read as the replies to later commands.
  */
 import type { ExclusiveLease, MLoggerClient } from './client';
-import { AbortedError, DumpError, DumpStallError } from './errors';
+import { AbortedError, DumpError, DumpStallError, ProtocolError } from './errors';
 import { RECORD_SIZE } from './record';
 import type { CountResult } from './types';
 
@@ -26,7 +31,9 @@ export interface DumpJobOptions {
   blockRecords?: number;
   maxAttempts?: number;
   stallMs?: number;
+  /** Silence (ms) that shows the device has stopped sending. */
   quietMs?: number;
+  /** How long (ms) to wait for that silence before giving up on the link. */
   quietMaxMs?: number;
   /** Resume: first block to fetch. The total must still equal `expectTotal`. */
   startBlock?: number;
@@ -57,12 +64,25 @@ export async function runDump(client: MLoggerClient, opts: DumpJobOptions): Prom
   const maxAttempts = opts.maxAttempts ?? 4;
   const stallMs = opts.stallMs ?? 8000;
   const quietMs = opts.quietMs ?? 700;
-  const quietMaxMs = opts.quietMaxMs ?? 5000;
+  // The rest of a 22 kB block takes up to ~18 s at the slowest firmware rate (1.2 kB/s).
+  const quietMaxMs = opts.quietMaxMs ?? 20_000;
   const now = opts.now ?? (() => Date.now());
   const signal = opts.signal;
 
   const lease: ExclusiveLease = await client.acquireExclusive(signal);
-  let aborted = false;
+  /** A block request ended before all of its bytes were read; the rest may still arrive. */
+  let tailPending = false;
+  /**
+   * Wait for the device to stop sending, then drop the partial line those bytes left behind.
+   * A link that keeps sending is closed instead. Returns whether the link is usable.
+   */
+  const settle = async (): Promise<boolean> => {
+    const quiet = await lease.waitRxQuiet(quietMs, quietMaxMs);
+    tailPending = false;
+    if (quiet) lease.resetDecoder();
+    else lease.closeLink('the logger kept sending after an interrupted download block');
+    return quiet;
+  };
   try {
     const info = await lease.call('get_count', undefined, signal ? { signal } : {});
     if (info.record_size !== RECORD_SIZE) throw new DumpError(`unsupported record size ${info.record_size}`);
@@ -105,9 +125,8 @@ export async function runDump(client: MLoggerClient, opts: DumpJobOptions): Prom
       const buf = new Uint8Array(limit * RECORD_SIZE);
       for (let attempt = 1; ; attempt++) {
         if (signal?.aborted) throw new AbortedError();
-        if (attempt > 1) {
-          await lease.waitRxQuiet(quietMs, quietMaxMs);
-          lease.resetDecoder();
+        if (tailPending && !(await settle())) {
+          throw new DumpError('the logger kept sending after a stalled block; reconnecting');
         }
         let inBlock = 0;
         try {
@@ -123,6 +142,8 @@ export async function runDump(client: MLoggerClient, opts: DumpJobOptions): Prom
           });
           break;
         } catch (err) {
+          // An error reply ends the request; any other failure may leave the block streaming.
+          if (!(err instanceof ProtocolError)) tailPending = true;
           receivedTotal -= inBlock;
           done = from;
           if (!(err instanceof DumpStallError) || attempt >= maxAttempts) throw err;
@@ -135,16 +156,9 @@ export async function runDump(client: MLoggerClient, opts: DumpJobOptions): Prom
       report(b, 1);
     }
     return { total, blocks: nBlocks, bytes, retries };
-  } catch (err) {
-    aborted = err instanceof AbortedError || !!signal?.aborted;
-    throw err;
   } finally {
-    // After a cancelled block the firmware keeps streaming the rest of it; wait for silence so
-    // those bytes are not parsed as JSON by the next request.
-    if (aborted) {
-      await lease.waitRxQuiet(quietMs, 12_000);
-      lease.resetDecoder();
-    }
+    // Cancelled or failed for good: the rest of the block must not reach the next command.
+    if (tailPending) await settle();
     lease.release();
   }
 }

@@ -20,6 +20,8 @@ export interface DumpFault {
   stallAfterBytes: number;
   /** Deliver the withheld bytes this many ms later (late data from a stalled attempt). */
   lateMs?: number;
+  /** Deliver them in 220-byte payloads this many ms apart instead of all at once. */
+  lateChunkMs?: number;
 }
 
 export interface FakeFirmwareOptions {
@@ -50,6 +52,8 @@ export class FakeFirmwareLink implements PayloadLink {
   readonly accepted: string[] = [];
   /** Lines (or fragments) dropped because a previous line was still pending. */
   dropped = 0;
+  /** Late payloads of faulty dump attempts delivered so far. */
+  lateEmitted = 0;
   name = 'MLogger_0001';
   logging = false;
   rtcSet = false;
@@ -237,7 +241,17 @@ export class FakeFirmwareLink implements PayloadLink {
     if (fault) {
       if (fault.lateMs !== undefined) {
         const rest = stream.slice(sendUpTo);
-        setTimeout(() => !this.closed_ && this.payloadL.emit(rest), fault.lateMs);
+        const step = fault.lateChunkMs;
+        const parts: Uint8Array[] = [];
+        if (step === undefined) parts.push(rest);
+        else for (let i = 0; i < rest.length; i += 220) parts.push(rest.subarray(i, i + 220));
+        parts.forEach((part, k) => {
+          setTimeout(() => {
+            if (this.closed_) return;
+            this.lateEmitted += 1;
+            this.payloadL.emit(part);
+          }, fault.lateMs! + k * (step ?? 0));
+        });
       }
       return;
     }

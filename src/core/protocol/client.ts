@@ -86,6 +86,11 @@ export interface ExclusiveLease {
   waitRxQuiet(quietMs: number, maxMs: number): Promise<boolean>;
   /** Drop any partial line (after late binary bytes). */
   resetDecoder(): void;
+  /**
+   * Give up on the link: its byte stream can no longer be put back in step (the device keeps
+   * sending). Closes the client and the link; the device controller reconnects.
+   */
+  closeLink(reason: string): void;
   release(): void;
 }
 
@@ -377,17 +382,8 @@ export class MLoggerClient {
 
   private onLine(line: string): void {
     this.emit('traffic', { dir: 'rx', line, at: this.now() });
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('{')) {
-      this.emit('unparsed', line);
-      return;
-    }
-    let msg: Record<string, unknown>;
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('not an object');
-      msg = parsed as Record<string, unknown>;
-    } catch {
+    const msg = parseLine(line);
+    if (!msg) {
       this.emit('unparsed', line);
       return;
     }
@@ -529,6 +525,12 @@ export class MLoggerClient {
   resetDecoder(): void {
     this.decoder.reset();
   }
+
+  /** @internal */
+  closeLink(reason: string): void {
+    this.dispose(new Error(reason));
+    this.link.close(reason);
+  }
 }
 
 class Lease implements ExclusiveLease {
@@ -575,11 +577,42 @@ class Lease implements ExclusiveLease {
     this.client.resetDecoder();
   }
 
+  closeLink(reason: string): void {
+    if (!this.released) this.client.closeLink(reason);
+  }
+
   release(): void {
     if (this.released) return;
     this.released = true;
     this.client.releaseLease(this);
   }
+}
+
+function parseObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Every firmware message starts with this (protocol_codec.c / protocol_events.c). */
+const MESSAGE_START = '{"v":';
+
+/**
+ * Parse one received line. Binary bytes of an abandoned dump block that arrive late are
+ * split into lines too, and the last of them sticks to the front of the next message; in
+ * that case the message is read from its `{"v":` start, so the reply is not lost.
+ */
+function parseLine(line: string): Record<string, unknown> | null {
+  const text = line.trim();
+  const msg = text.startsWith('{') ? parseObject(text) : null;
+  if (msg) return msg;
+  const at = text.indexOf(MESSAGE_START, 1);
+  return at > 0 ? parseObject(text.slice(at)) : null;
 }
 
 function num(v: unknown): number {

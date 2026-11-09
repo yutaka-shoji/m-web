@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue';
+import { computed, defineAsyncComponent, ref, watch } from 'vue';
 import ConditionsBar from '../components/devices/ConditionsBar.vue';
 import RecordingBar from '../components/recording/RecordingBar.vue';
 import { useRecordingStore } from '../stores/recording';
@@ -46,6 +46,26 @@ async function findLost() {
     addError.value = t('error.addFailed', { message: e instanceof Error ? e.message : String(e) });
   } finally {
     adding.value = false;
+  }
+}
+
+const resuming = ref(false);
+const resumeError = ref<string | null>(null);
+// A recording that runs (resumed here or on the Data page) makes an earlier failure moot.
+watch(
+  () => rec.active,
+  (a) => a && (resumeError.value = null),
+);
+
+async function resumeRecording(sessionId: string) {
+  resuming.value = true;
+  resumeError.value = null;
+  try {
+    await rec.resume(sessionId);
+  } catch (e) {
+    resumeError.value = t('error.commandFailed', { message: e instanceof Error ? e.message : String(e) });
+  } finally {
+    resuming.value = false;
   }
 }
 
@@ -121,13 +141,18 @@ async function stopAll() {
       <AppBanner v-for="s in rec.active ? [] : rec.interrupted" :key="s.id" tone="warn">
         {{ t('recording.interrupted', { title: s.title }) }}
         <span class="banner-actions">
-          <button class="btn btn--small" :disabled="!store.connectedCount" @click="rec.resume(s.id)">
+          <button
+            class="btn btn--small"
+            :disabled="!store.connectedCount || resuming"
+            @click="resumeRecording(s.id)"
+          >
             {{ t('recording.resume') }}
           </button>
           <RouterLink class="btn btn--small btn--quiet" to="/data">{{ t('recording.viewData') }}</RouterLink>
           <button class="btn btn--small btn--quiet" @click="rec.dismissInterrupted(s.id)">{{ t('recording.dismiss') }}</button>
         </span>
       </AppBanner>
+      <AppBanner v-if="resumeError" tone="warn">{{ resumeError }}</AppBanner>
     </div>
 
     <div v-if="!total" class="empty">

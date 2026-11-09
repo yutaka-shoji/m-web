@@ -1,8 +1,14 @@
 import { defineStore } from 'pinia';
 import { markRaw, ref, shallowRef, watch } from 'vue';
-import { deleteSession as dbDeleteSession, type Db, type SessionRecord } from '../../core/data/db';
+import {
+  deleteSession as dbDeleteSession,
+  finishDeletions,
+  type Db,
+  type SessionRecord,
+} from '../../core/data/db';
 import { Recorder } from '../../core/data/recorder';
 import type { Transports } from '../../core/protocol/types';
+import { ownsDeviceWork } from '../composables/useAppStatus';
 import { getDb } from '../db';
 import { useDevicesStore, type DeviceEntry } from './devices';
 import { useSettingsStore } from './settings';
@@ -19,6 +25,11 @@ export const useRecordingStore = defineStore('recording', () => {
   let db: Db | null = null;
   let recorder: Recorder | null = null;
   const ready = ref(false);
+  /**
+   * This tab may record (it holds the devices). In another tab the recording data is read-only:
+   * a session still marked 'recording' there belongs to the tab that is writing it.
+   */
+  let owner = true;
   const active = shallowRef<SessionRecord | null>(null);
   const samples = ref(0);
   const error = ref<string | null>(null);
@@ -27,16 +38,36 @@ export const useRecordingStore = defineStore('recording', () => {
   const storage = ref<StorageInfo | null>(null);
   const transports = shallowRef<Transports | null>(null);
 
-  async function init(): Promise<void> {
-    if (db) return;
-    db = await getDb();
-    recorder = markRaw(new Recorder(db, { appVersion: __APP_VERSION__ }));
+  // App and DataView both call init() on mount (DataView first: children mount before parents),
+  // so it runs once and every caller waits for the same run.
+  let initRun: Promise<void> | null = null;
+  function init(): Promise<void> {
+    initRun ??= doInit().catch((err: unknown) => {
+      initRun = null;
+      throw err;
+    });
+    return initRun;
+  }
+
+  async function doInit(): Promise<void> {
+    const d = await getDb();
+    // Sessions left 'recording' by a closed or crashed page are marked interrupted, but only by
+    // the tab that holds the devices: in a second tab, such a session is being recorded right now.
+    owner = await ownsDeviceWork();
+    db = d;
+    recorder = markRaw(new Recorder(d, { appVersion: __APP_VERSION__ }));
     recorder.onStatus((s) => {
       active.value = s.session ? { ...s.session } : null;
       samples.value = s.samples;
       error.value = s.error;
     });
-    interrupted.value = await Recorder.recoverInterrupted(db);
+    if (owner) {
+      interrupted.value = await Recorder.recoverInterrupted(d);
+      // In the background: a long session takes a while, and it is no longer listed anyway.
+      void finishDeletions(d)
+        .then(() => estimate())
+        .catch(() => undefined);
+    }
     await refresh();
     await estimate();
     ready.value = true;
@@ -49,7 +80,13 @@ export const useRecordingStore = defineStore('recording', () => {
 
   async function refresh(): Promise<void> {
     if (!db) return;
-    sessions.value = (await db.getAll('sessions')).sort((a, b) => b.startedAt - a.startedAt);
+    const all = await db.getAll('sessions');
+    sessions.value = all.filter((s) => s.status !== 'deleting').sort((a, b) => b.startedAt - a.startedAt);
+    // The banner keeps the sessions that are still interrupted: not resumed, not deleted (in
+    // this or another tab).
+    const still = new Set(all.filter((s) => s.status === 'interrupted').map((s) => s.id));
+    const left = interrupted.value.filter((s) => still.has(s.id));
+    if (left.length !== interrupted.value.length) interrupted.value = left;
   }
 
   async function estimate(): Promise<void> {
@@ -71,8 +108,13 @@ export const useRecordingStore = defineStore('recording', () => {
     await e.controller.startLogging(tr);
   }
 
+  function requireOwner(): void {
+    if (!owner) throw new Error('another tab holds the loggers');
+  }
+
   async function start(opts: { title: string; flash: boolean }): Promise<void> {
     await init();
+    requireOwner();
     const tr: Transports = { zigbee: false, ble: true, flash: opts.flash, usb: false };
     const online = devices.entries.filter((e) => e.state.value.conn.state === 'online' && e.state.value.meta.hardwareId);
     if (online.length === 0) throw new Error('no connected logger');
@@ -111,17 +153,31 @@ export const useRecordingStore = defineStore('recording', () => {
 
   async function resume(sessionId: string, flash = true): Promise<void> {
     await init();
+    requireOwner();
     const tr: Transports = { zigbee: false, ble: true, flash, usb: false };
     const online = devices.entries.filter((e) => e.state.value.conn.state === 'online' && e.state.value.meta.hardwareId);
+    // The session is claimed, and the loggers join it, before any logger is started: a session
+    // that is gone or being deleted is refused without touching them, and the recorder hears every
+    // sample from the start.
+    let joinError: unknown = null;
+    try {
+      await recorder!.resume(
+        sessionId,
+        online.map((e) => ({ controller: e.controller, colorIndex: e.colorIndex })),
+        tr,
+      );
+    } catch (err) {
+      if (!recorder!.active) {
+        await refresh(); // refused; the lists may be out of date (e.g. deleted in another tab)
+        throw err;
+      }
+      joinError = err; // claimed, but a logger failed to join: syncDevices joins it later
+    }
     await Promise.allSettled(online.map((e) => ensureLogging(e, tr)));
+    // Only now: while the loggers are starting, syncDevices would start them a second time.
     transports.value = tr;
-    await recorder!.resume(
-      sessionId,
-      online.map((e) => ({ controller: e.controller, colorIndex: e.colorIndex })),
-      tr,
-    );
-    interrupted.value = interrupted.value.filter((s) => s.id !== sessionId);
     await refresh();
+    if (joinError) throw joinError;
   }
 
   function dismissInterrupted(sessionId: string): void {
@@ -130,8 +186,8 @@ export const useRecordingStore = defineStore('recording', () => {
 
   async function remove(sessionId: string): Promise<void> {
     if (!db || active.value?.id === sessionId) return;
+    // Refused while it is being recorded: here, or in another tab (still 'recording' there).
     await dbDeleteSession(db, sessionId);
-    interrupted.value = interrupted.value.filter((s) => s.id !== sessionId);
     await refresh();
     await estimate();
   }

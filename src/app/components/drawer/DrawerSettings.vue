@@ -30,18 +30,30 @@ function toLocalInput(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-const valid = computed(() =>
+const intervalsValid = computed(() =>
   CATEGORY_KEYS.every((k) => Number.isInteger(draft[k].interval) && draft[k].interval >= 1 && draft[k].interval <= 86400),
 );
 
+/** `start_ts` to send: 0 = immediately; null = "at a set time" without a usable future time. */
+function startTs(): number | null {
+  if (draft.start === 'now') return 0;
+  const ms = new Date(draft.startAt).getTime(); // '' (not filled in) → NaN
+  return Number.isFinite(ms) && ms > Date.now() ? Math.floor(ms / 1000) : null;
+}
+const startValid = computed(() => startTs() !== null);
+const valid = computed(() => intervalsValid.value && startValid.value);
+
 async function send() {
   if (!valid.value) return;
+  const start_ts = startTs(); // checked again: the chosen time may have passed meanwhile
+  if (start_ts === null) {
+    msg.value = { ok: false, text: t('drawer.startAtInvalid') };
+    return;
+  }
   busy.value = true;
   msg.value = null;
   try {
-    const patch: Partial<Record<CategoryKey, { enabled: boolean; interval: number }>> & { start_ts: number } = {
-      start_ts: draft.start === 'at' && draft.startAt ? Math.floor(new Date(draft.startAt).getTime() / 1000) : 0,
-    };
+    const patch: Partial<Record<CategoryKey, { enabled: boolean; interval: number }>> & { start_ts: number } = { start_ts };
     for (const k of CATEGORY_KEYS) patch[k] = { enabled: draft[k].enabled, interval: draft[k].interval };
     await props.entry.controller.setSettings(patch);
     msg.value = { ok: true, text: t('drawer.sent') };
@@ -84,7 +96,8 @@ async function reload() {
       <label><input v-model="draft.start" type="radio" value="at" :disabled="!online" /> {{ t('drawer.startScheduled') }}</label>
       <input v-if="draft.start === 'at'" v-model="draft.startAt" type="datetime-local" :disabled="!online" />
     </div>
-    <p v-if="!valid" class="msg warn">{{ t('drawer.intervalRange') }}</p>
+    <p v-if="!intervalsValid" class="msg warn">{{ t('drawer.intervalRange') }}</p>
+    <p v-if="!startValid" class="msg warn">{{ t('drawer.startAtInvalid') }}</p>
     <div class="actions">
       <button class="btn btn--small btn--primary" :disabled="!online || busy || !valid" @click="send">{{ t('drawer.send') }}</button>
       <button class="btn btn--small btn--quiet" :disabled="!online || busy" @click="reload">{{ t('drawer.reload') }}</button>

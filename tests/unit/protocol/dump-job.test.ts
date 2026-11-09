@@ -87,6 +87,40 @@ describe('dump job (block pull)', () => {
     expect((await client.call('hello', undefined)).device).toBe('M-Logger');
   });
 
+  it('hands the device back only after the tail of a failed last attempt has arrived', async () => {
+    const records = makeRecords(1000);
+    // The only attempt stalls at ~85 ms; its withheld bytes arrive at ~110 ms.
+    const { fw, client } = setup({ records, dumpFaults: [{ from: 0, attempt: 1, stallAfterBytes: 5000, lateMs: 110 }] });
+    const err = await collect(client, { maxAttempts: 1, quietMs: 120 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DumpStallError);
+    expect(fw.lateEmitted).toBe(1); // drained before the lease was released
+    expect((await client.call('hello', undefined, { timeoutMs: 300, retry: false })).device).toBe('M-Logger');
+  });
+
+  it('still reads replies when late binary bytes come after the device was handed back', async () => {
+    const records = makeRecords(1000);
+    // A stall implies a silent link, so the device is released at once; the tail comes later
+    // and its last bytes stick to the front of the next reply.
+    const { fw, client } = setup({ records, dumpFaults: [{ from: 0, attempt: 1, stallAfterBytes: 5000, lateMs: 150 }] });
+    await expect(collect(client, { maxAttempts: 1 })).rejects.toBeInstanceOf(DumpStallError);
+    while (fw.lateEmitted === 0) await new Promise((r) => setTimeout(r, 10));
+    expect((await client.call('hello', undefined, { timeoutMs: 300, retry: false })).device).toBe('M-Logger');
+  });
+
+  it('closes the link instead of retrying while the logger keeps sending', async () => {
+    const records = makeRecords(1000);
+    // Attempt 1 stalls at ~70 ms; from 100 ms its tail trickles in for ~1.4 s, past quietMaxMs.
+    const { fw, client } = setup({
+      records,
+      dumpFaults: [{ from: 0, attempt: 1, stallAfterBytes: 1000, lateMs: 100, lateChunkMs: 15 }],
+    });
+    const err = await collect(client, { quietMs: 120, quietMaxMs: 300 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DumpError);
+    expect(fw.closed).toBe(true);
+    expect(client.closed).toBe(true);
+    expect(fw.accepted.filter((l) => l.includes('"dump"'))).toHaveLength(1); // no retry was sent
+  });
+
   it('reports progress with an ETA', async () => {
     const { client } = setup({ records: makeRecords(1500) });
     const seen: number[] = [];

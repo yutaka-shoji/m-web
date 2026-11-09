@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import type { SessionRecord } from '../../core/data/db';
 import ConfirmDialog from '../components/ui/ConfirmDialog.vue';
+import { useAppStatus } from '../composables/useAppStatus';
 import { downloadBlob, formatBytes, runExport } from '../export';
 import { formatDuration } from '../format';
 import { locale, t, type MessageKey } from '../i18n';
@@ -12,6 +13,7 @@ import { useSettingsStore } from '../stores/settings';
 const rec = useRecordingStore();
 const dumps = useDumpsStore();
 const settings = useSettingsStore();
+const app = useAppStatus();
 const progress = reactive<Record<string, number>>({});
 const message = ref<string | null>(null);
 const errorMsg = ref<string | null>(null);
@@ -75,6 +77,21 @@ async function download(s: SessionRecord) {
   }
 }
 
+const resuming = ref(false);
+
+async function resume(s: SessionRecord) {
+  message.value = null;
+  errorMsg.value = null;
+  resuming.value = true;
+  try {
+    await rec.resume(s.id);
+  } catch (e) {
+    errorMsg.value = t('error.commandFailed', { message: e instanceof Error ? e.message : String(e) });
+  } finally {
+    resuming.value = false;
+  }
+}
+
 async function confirmDelete() {
   const s = toDelete.value;
   toDelete.value = null;
@@ -133,7 +150,12 @@ async function confirmDelete() {
             <td class="actions">
               <span v-if="progress[s.id] !== undefined" class="muted">{{ t('data.exporting', { pct: progress[s.id]! }) }}</span>
               <template v-else>
-                <button v-if="s.status === 'interrupted' && !rec.active" class="btn btn--small" @click="rec.resume(s.id)">
+                <button
+                  v-if="s.status === 'interrupted' && !rec.active && app.tabRole !== 'secondary'"
+                  class="btn btn--small"
+                  :disabled="resuming"
+                  @click="resume(s)"
+                >
                   {{ t('data.resume') }}
                 </button>
                 <button class="btn btn--small" data-testid="download" :disabled="s.samples === 0" @click="download(s)">
@@ -179,7 +201,9 @@ async function confirmDelete() {
               <button class="btn btn--small" :disabled="d.status !== 'done'" @click="downloadDump(d.id)">
                 {{ t('data.downloadCsv') }}
               </button>
-              <button class="btn btn--small btn--quiet" @click="dumps.remove(d.id)">{{ t('data.delete') }}</button>
+              <button class="btn btn--small btn--quiet" :disabled="d.status === 'running'" @click="dumps.remove(d.id)">
+                {{ t('data.delete') }}
+              </button>
             </td>
           </tr>
         </tbody>

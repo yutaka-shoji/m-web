@@ -49,6 +49,21 @@ describe('chart data', () => {
     expect(Math.max(...(y.filter((v) => typeof v === 'number') as number[]))).toBe(50);
   });
 
+  it('grid mode breaks the line only at real gaps', () => {
+    // 1 Hz for 3 h, flat except a step, with a 10-minute pause: 20-s buckets on a 1-s step.
+    const s = new DeviceSeries(20_000);
+    for (let i = 0; i < 10_800; i++) {
+      if (i >= 5000 && i < 5600) continue;
+      s.append(i, { t: i < 2000 ? 21 : 22 });
+    }
+    const d = buildChartData([s], 't', 0, 10_800, 1080);
+    expect(d.mode).toBe('grid');
+    const breaks = d.x.filter((_x, k) => d.ys[0]![k] === null);
+    expect(breaks).toHaveLength(1);
+    expect(breaks[0]).toBeGreaterThan(4990);
+    expect(breaks[0]).toBeLessThan(5600);
+  });
+
   it('bounds the output size for long windows', () => {
     const samples: Array<[number, number]> = [];
     for (let i = 0; i < 86_400; i++) samples.push([i, Math.sin(i / 600)]);

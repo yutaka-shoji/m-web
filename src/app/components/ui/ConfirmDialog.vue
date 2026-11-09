@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, useId, watch } from 'vue';
 import { t } from '../../i18n';
 
 const props = defineProps<{
@@ -12,6 +12,9 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ confirm: []; cancel: [] }>();
 const dlg = ref<HTMLDialogElement>();
+// Screen readers announce the title (and body) when focus moves into the dialog.
+const titleId = useId();
+const bodyId = useId();
 
 watch(
   () => props.open,
@@ -26,10 +29,17 @@ watch(
 </script>
 
 <template>
-  <dialog ref="dlg" class="dialog" @cancel.prevent="emit('cancel')" @close="open && emit('cancel')">
+  <dialog
+    ref="dlg"
+    class="dialog"
+    :aria-labelledby="titleId"
+    :aria-describedby="body ? bodyId : undefined"
+    @cancel.prevent="emit('cancel')"
+    @close="open && emit('cancel')"
+  >
     <form method="dialog" class="dialog__form" @submit.prevent="!confirmDisabled && emit('confirm')">
-      <h2 class="dialog__title">{{ title }}</h2>
-      <p v-if="body" class="dialog__body">{{ body }}</p>
+      <h2 :id="titleId" class="dialog__title">{{ title }}</h2>
+      <p v-if="body" :id="bodyId" class="dialog__body">{{ body }}</p>
       <div class="dialog__extra"><slot /></div>
       <div class="dialog__actions">
         <button type="button" class="btn btn--quiet" @click="emit('cancel')">{{ t('common.cancel') }}</button>
