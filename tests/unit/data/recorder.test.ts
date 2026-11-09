@@ -4,7 +4,7 @@ import { DEFAULT_CONDITIONS } from '../../../src/core/comfort/comfort';
 import { meanRadiantTemperature } from '../../../src/core/comfort/mrt';
 import { pmvPpd } from '../../../src/core/comfort/pmv';
 import { deleteSession, finishDeletions, openMWebDB, type ChunkRecord, type Db } from '../../../src/core/data/db';
-import { Recorder } from '../../../src/core/data/recorder';
+import { Recorder, type RecorderDevice } from '../../../src/core/data/recorder';
 import { DeviceController } from '../../../src/core/device/controller';
 import { exportSessionCsv } from '../../../src/core/export/export-session';
 import { Mutex } from '../../../src/core/util/emitter';
@@ -164,6 +164,24 @@ describe('deleting and resuming one session in two tabs', () => {
     expect(await deletion).toBe(false);
     expect((await db.get('sessions', id))?.status).toBe('recording');
     expect(await db.count('chunks')).toBe(1200);
+    await rec2.stop();
+  });
+
+  it('keeps running a claimed session when one logger fails to join', async () => {
+    const { db, ctrl, id } = await stoppedSession(1);
+    const rec2 = new Recorder(db, { flushMs: 0 });
+    // A logger whose identity is not known yet cannot join.
+    const unknown = {
+      controller: { snapshot: { meta: { hardwareId: null } } },
+      colorIndex: 1,
+    } as unknown as RecorderDevice;
+    await expect(
+      rec2.resume(id, [{ controller: ctrl, colorIndex: 0 }, unknown], TRANSPORTS),
+    ).rejects.toThrow('identity unknown');
+    expect(rec2.active?.id).toBe(id);
+    expect(rec2.isMember('3DF27622')).toBe(true);
+    const events = (await db.getAll('events')).map((e) => e.kind + (e.detail ? `:${e.detail}` : ''));
+    expect(events.at(-1)).toBe('start:resumed');
     await rec2.stop();
   });
 

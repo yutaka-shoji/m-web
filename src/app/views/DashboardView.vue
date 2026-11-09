@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue';
+import { computed, defineAsyncComponent, ref, watch } from 'vue';
 import ConditionsBar from '../components/devices/ConditionsBar.vue';
 import RecordingBar from '../components/recording/RecordingBar.vue';
 import { useRecordingStore } from '../stores/recording';
@@ -51,6 +51,11 @@ async function findLost() {
 
 const resuming = ref(false);
 const resumeError = ref<string | null>(null);
+// A recording that runs (resumed here or on the Data page) makes an earlier failure moot.
+watch(
+  () => rec.active,
+  (a) => a && (resumeError.value = null),
+);
 
 async function resumeRecording(sessionId: string) {
   resuming.value = true;

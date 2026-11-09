@@ -159,6 +159,7 @@ export const useRecordingStore = defineStore('recording', () => {
     // The session is claimed, and the loggers join it, before any logger is started: a session
     // that is gone or being deleted is refused without touching them, and the recorder hears every
     // sample from the start.
+    let joinError: unknown = null;
     try {
       await recorder!.resume(
         sessionId,
@@ -166,13 +167,17 @@ export const useRecordingStore = defineStore('recording', () => {
         tr,
       );
     } catch (err) {
-      await refresh(); // the lists may be out of date (e.g. deleted in another tab)
-      throw err;
+      if (!recorder!.active) {
+        await refresh(); // refused; the lists may be out of date (e.g. deleted in another tab)
+        throw err;
+      }
+      joinError = err; // claimed, but a logger failed to join: syncDevices joins it later
     }
     await Promise.allSettled(online.map((e) => ensureLogging(e, tr)));
     // Only now: while the loggers are starting, syncDevices would start them a second time.
     transports.value = tr;
     await refresh();
+    if (joinError) throw joinError;
   }
 
   function dismissInterrupted(sessionId: string): void {

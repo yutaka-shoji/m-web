@@ -134,10 +134,14 @@ export class Recorder {
     await tx.done;
     this.session = session;
     this.error = null;
-    for (const d of devices) await this.join(d, transports);
-    await this.logEvent('start', null, 'resumed');
-    this.startTimer();
-    this.emit();
+    try {
+      for (const d of devices) await this.join(d, transports);
+    } finally {
+      // The session is claimed: it runs even if a logger failed to join (it can join later).
+      await this.logEvent('start', null, 'resumed');
+      this.startTimer();
+      this.emit();
+    }
     return session;
   }
 

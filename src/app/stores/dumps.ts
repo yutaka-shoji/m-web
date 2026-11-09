@@ -63,10 +63,17 @@ export const useDumpsStore = defineStore('dumps', () => {
     if (!client || !meta0.hardwareId) throw new Error('logger not connected');
     if (!(await ownsDeviceWork())) throw new Error('another tab holds the loggers');
     const db = await getDb();
+    // Recovery first: run later, it would take the claimed download (not yet among the jobs) for
+    // an abandoned one and mark it 'paused'.
+    await recoverOnce();
     // Claimed before the logger is asked anything: a download deleted meanwhile (here or in a tab
-    // whose list this one does not see) is refused, and once claimed it can't be deleted. The list
-    // is read again either way, as it may have been out of date.
-    const resumed = resume ? await reopenDump(db, resume.id).finally(refresh) : null;
+    // whose list this one does not see) is refused, and once claimed it can't be deleted.
+    const resumed = resume
+      ? await reopenDump(db, resume.id).catch(async (err: unknown) => {
+          await refresh(); // the list was out of date
+          throw err;
+        })
+      : null;
     const job: DumpJob = { dumpId: resumed?.id ?? null, total: resumed?.total ?? 0, progress: null, error: null, done: false, abort: new AbortController() };
     jobs[entry.key] = job;
     const live = jobs[entry.key]!; // reactive proxy
